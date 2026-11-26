@@ -10,6 +10,7 @@ import (
 	"github.com/agiledragon/gomonkey/v2"
 	gnoi_common "github.com/openconfig/gnoi/common"
 	gnoi_file_pb "github.com/openconfig/gnoi/file"
+	"github.com/sonic-net/sonic-gnmi/common_utils"
 	gnoifile "github.com/sonic-net/sonic-gnmi/pkg/gnoi/file"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 
@@ -18,6 +19,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -37,11 +39,7 @@ func createFileServer(t *testing.T, port int) (*grpc.Server, string) {
 	}
 
 	s := grpc.NewServer()
-	fileServer := &FileServer{
-		Server: &Server{
-			config: &Config{}, // Add config fields if required
-		},
-	}
+	fileServer := newFileServer(&Config{})
 	gnoi_file_pb.RegisterFileServer(s, fileServer)
 
 	go func() {
@@ -75,7 +73,7 @@ func TestGnoiFileServer(t *testing.T) {
 	// authenticate hook fires before the handler, and that handler errors
 	// surface as gRPC status codes through the server stack.
 	t.Run("Stat Fails with Auth Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauth"))
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, nil, status.Error(codes.Unauthenticated, "unauth"))
 		defer patch.Reset()
 
 		req := &gnoi_file_pb.StatRequest{Path: "/tmp/test.txt"}
@@ -89,7 +87,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Smoke test: an authenticated request reaches HandleStat and a
 		// handler-level error (empty path -> InvalidArgument) propagates
 		// through the server stack as the matching gRPC status code.
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, context.Background(), nil)
 		defer patch.Reset()
 
 		req := &gnoi_file_pb.StatRequest{Path: ""}
@@ -132,7 +130,7 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 	})
 
-	t.Run("TransferToRemote DPU Success", func(t *testing.T) {
+	t.Run("TransferToRemote DPU Disabled", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
@@ -145,11 +143,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		// Create context with DPU metadata (lines 117, 120, 125-126)
 		md := metadata.New(map[string]string{
@@ -163,11 +157,11 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 
 		resp, err := fs.TransferToRemote(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		assert.Nil(t, resp)
 	})
 
-	t.Run("TransferToRemote NPU Success", func(t *testing.T) {
+	t.Run("TransferToRemote NPU Disabled", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
@@ -180,11 +174,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return &gnoi_file_pb.TransferToRemoteResponse{}, nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		ctx := context.Background() // No DPU metadata - should call regular function
 
@@ -193,8 +183,8 @@ func TestGnoiFileServer(t *testing.T) {
 		}
 
 		resp, err := fs.TransferToRemote(ctx, req)
-		assert.NoError(t, err)
-		assert.NotNil(t, resp)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
+		assert.Nil(t, resp)
 	})
 
 	t.Run("TransferToRemote Fails with Auth Error", func(t *testing.T) {
@@ -236,11 +226,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// ensure cleanup if the handler didn't remove it for any reason
 		defer func() { _ = os.Remove(tmpPath) }()
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: tmpPath}
 		resp, err := fs.Remove(context.Background(), req)
 
@@ -254,11 +240,7 @@ func TestGnoiFileServer(t *testing.T) {
 	})
 
 	t.Run("Remove_Fails_NilRequest", func(t *testing.T) {
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		_, err := fs.Remove(context.Background(), nil)
 		assert.Error(t, err)
 		assert.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -270,11 +252,7 @@ func TestGnoiFileServer(t *testing.T) {
 
 		patches.ApplyFuncReturn(authenticate, nil, nil)
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: ""}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -289,11 +267,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Simulate auth failure
 		patches.ApplyFuncReturn(authenticate, nil, status.Error(codes.PermissionDenied, "unauthenticated"))
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/test.txt"}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -301,7 +275,7 @@ func TestGnoiFileServer(t *testing.T) {
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 
-	t.Run("Remove_Fails_With_RemoveFile_Error", func(t *testing.T) {
+	t.Run("Remove_Fails_With_OS_Remove_Error", func(t *testing.T) {
 		patches := gomonkey.NewPatches()
 		defer patches.Reset()
 
@@ -314,11 +288,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// Patch NewDbusClient to return an erring client if needed by the handler branch later.
 		patches.ApplyFuncReturn(ssc.NewDbusClient, &ssc.FakeClientWithError{}, nil)
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 		req := &gnoi_file_pb.RemoveRequest{RemoteFile: "/tmp/bad.txt"}
 		_, err := fs.Remove(context.Background(), req)
 
@@ -328,7 +298,7 @@ func TestGnoiFileServer(t *testing.T) {
 	})
 
 	t.Run("Get_Fails_With_Auth_Error", func(t *testing.T) {
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, nil, status.Error(codes.Unauthenticated, "unauthenticated"))
 		defer patch.Reset()
 
 		stream, err := client.Get(context.Background(), &gnoi_file_pb.GetRequest{})
@@ -347,7 +317,7 @@ func TestGnoiFileServer(t *testing.T) {
 		// propagates through the server stack as the matching gRPC
 		// status code. Behavior coverage for HandleGet lives in
 		// pkg/gnoi/file/get_test.go.
-		patch := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+		patch := gomonkey.ApplyFuncReturn(authorizeFileRead, context.Background(), nil)
 		defer patch.Reset()
 
 		stream, err := client.Get(context.Background(), &gnoi_file_pb.GetRequest{})
@@ -373,11 +343,7 @@ func TestGnoiFileServer(t *testing.T) {
 				return nil
 			})
 
-		fs := &FileServer{
-			Server: &Server{
-				config: &Config{},
-			},
-		}
+		fs := newFileServer(&Config{})
 
 		// Create a mock stream
 		mockStream := &mockPutStream{
@@ -387,7 +353,67 @@ func TestGnoiFileServer(t *testing.T) {
 		err := fs.Put(mockStream)
 		assert.NoError(t, err)
 	})
+}
 
+func TestAuthorizeFileRead(t *testing.T) {
+	tcpContext := func() context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{
+			Addr: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 50052},
+		})
+	}
+	unixContext := func() context.Context {
+		return peer.NewContext(context.Background(), &peer.Peer{
+			Addr: &net.UnixAddr{Name: "/tmp/gnmi.sock", Net: "unix"},
+		})
+	}
+
+	t.Run("UDS uses filesystem authorization", func(t *testing.T) {
+		if _, err := newFileServer(&Config{}).Stat(unixContext(), &gnoi_file_pb.StatRequest{}); status.Code(err) != codes.InvalidArgument {
+			t.Fatalf("UDS File read should reach request validation: %v", err)
+		}
+	})
+
+	t.Run("TCP requires application authentication", func(t *testing.T) {
+		_, err := newFileServer(&Config{}).Stat(tcpContext(), &gnoi_file_pb.StatRequest{})
+		if status.Code(err) != codes.Unauthenticated {
+			t.Fatalf("File read returned %v, want Unauthenticated", err)
+		}
+	})
+
+	tests := []struct {
+		name  string
+		roles []string
+		code  codes.Code
+	}{
+		{name: "missing role", code: codes.PermissionDenied},
+		{name: "unrelated role", roles: []string{"gnmi_readonly"}, code: codes.PermissionDenied},
+		{name: "missing target separator", roles: []string{"gnoireadonly"}, code: codes.PermissionDenied},
+		{name: "unknown target role", roles: []string{"gnoi_other"}, code: codes.PermissionDenied},
+		{name: "explicit deny", roles: []string{"gnoi_noaccess"}, code: codes.PermissionDenied},
+		{name: "explicit deny overrides read", roles: []string{"gnoi_readonly", "gnoi_noaccess"}, code: codes.PermissionDenied},
+		{name: "read role", roles: []string{"gnoi_readonly"}, code: codes.InvalidArgument},
+		{name: "write role", roles: []string{"gnoi_readwrite"}, code: codes.InvalidArgument},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			patch := gomonkey.ApplyFunc(authenticate,
+				func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+					rc, ctx := common_utils.GetContext(ctx)
+					rc.Auth = common_utils.AuthInfo{
+						User:        "fixture",
+						AuthEnabled: true,
+						Roles:       tt.roles,
+					}
+					return ctx, nil
+				})
+			defer patch.Reset()
+
+			_, err := newFileServer(&Config{UserAuth: AuthTypes{"password": true}}).Stat(tcpContext(), &gnoi_file_pb.StatRequest{})
+			if status.Code(err) != tt.code {
+				t.Fatalf("File read returned %v, want %v", err, tt.code)
+			}
+		})
+	}
 }
 
 // Mock stream for Put testing

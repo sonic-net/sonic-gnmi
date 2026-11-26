@@ -21,12 +21,12 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGETS = (
     "//dist:runtime",
     "//dist:runtime.debug_symbols",
-    "//telemetry",
+    "//cmd/telemetry",
     "//gnoi_client",
     "@sonic_swss_common//dist:libswsscommon_pkg",
 )
-CHANGED = {"//dist:runtime", "//dist:runtime.debug_symbols", "//telemetry"}
-SOURCE = "telemetry/telemetry.go"
+CHANGED = {"//dist:runtime", "//dist:runtime.debug_symbols", "//cmd/telemetry"}
+SOURCE = "cmd/telemetry/main.go"
 ORIGINAL_TEXT = b"invalid shared-memory configuration: %w"
 EDITED_TEXT = b"invalid shared-memory configuration (incremental probe): %w"
 

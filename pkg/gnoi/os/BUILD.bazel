@@ -25,8 +25,9 @@ native_go_test(
     embed = [":os"],
     deps = [
         "//pkg/exec",
-        "@com_github_agiledragon_gomonkey_v2//:gomonkey",
         "@com_github_openconfig_gnoi//os",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
     ],
 )
 

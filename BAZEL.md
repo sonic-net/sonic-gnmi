@@ -8,7 +8,7 @@ and the actual generated protocol/YANG Go files under `/usr/src/sonic-gnmi`,
 with generated paths matching Make and the original test fixtures included.
 External dependency sources remain owned by their respective components. No Debian package producer is added.
 
-Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.25.9, the
+Use Bazel 8.5.1 on native Linux AMD64. The component selects Go 1.26.7, the
 shared Trixie C/C++ toolchain and the same pinned APT inputs as Common. Both
 `gnmi_translib_write` and `gnmi_native_write` are enabled by the telemetry
 target itself, matching the selected SONiC image profile even when a consuming
@@ -54,14 +54,11 @@ intentionally omitted for gNMI's existing glog1.2.4 selection.
 
 ## Consumers and dependency selection
 
-The root `.bazelrc`, native source CI and CodeQL use the maintained SONiC
-registry plus BCR. Management Common `1.0.1-05f83dcab8fe2e1a0e0fc37ac172b289d6968e2b`
-and the public goyang/ygot owners are available there. The separate consumer
-selects the same Management Common, SWSS Common and build-infra owners as the
-source root; no temporary registry selection is needed for these checks.
-The independent subscription-race reproduction uses landed owner sources and
-their maintained registry configuration while comparing the original baseline.
-It is separate evidence from the source-root and installed-consumer checks.
+The source build, CodeQL and the separate consumer resolve the owner versions
+in `MODULE.bazel` through the sonic-net registry and BCR. The native subscription
+test builds SWSS Common and its three netlink libraries from the same graph.
+It builds Management Common from the pinned source commit, so that test can run
+before the commit is published as a module.
 
 A consuming Bzlmod root supplies its Go SDK and the exported SONiC Go patches.
 `tests/consumer` is a real separate module: it imports gNMI's public server and
@@ -74,10 +71,7 @@ labels and the remaining root patch declarations. It needs no version overrides 
 owner's Go repository. Root-only development SDK/patch declarations are
 not executed when gNMI is a dependency.
 
-`go.bazel.work` preserves the native fsnotify and x/net versions when Bazel's
-own build-tool modules request newer versions. Consumers use that same file
-with `go_deps.from_file(go_work = "@sonic_gnmi//:go.bazel.work")`. The ordinary
-Make go.mod and its neighboring-checkout replacement remain supported.
+The Bazel workspace imports `go.mod` and keeps fsnotify at Make’s v1.4.9, which the SONiC patch requires. Consumers use `go_deps.from_file(go_work = "@sonic_gnmi//:go.bazel.work")`.
 
 ## Validation and maintenance
 

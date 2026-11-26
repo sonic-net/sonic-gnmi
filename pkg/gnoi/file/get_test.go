@@ -81,6 +81,9 @@ func (s *fakeGetServer) SetTrailer(metadata.MD)       {}
 func useTempHostRoot(t *testing.T) (logical, physical string) {
 	t.Helper()
 	root := t.TempDir()
+	if err := os.Chmod(root, 0755); err != nil {
+		t.Fatal(err)
+	}
 	prevRoot := hostRoot
 	hostRoot = root
 	t.Cleanup(func() { hostRoot = prevRoot })
@@ -95,6 +98,9 @@ func useTempHostRoot(t *testing.T) (logical, physical string) {
 	phys, err := os.MkdirTemp(physTmp, "get-test-*")
 	if err != nil {
 		t.Fatalf("mkdir temp under %s: %v", physTmp, err)
+	}
+	if err := os.Chmod(phys, 0755); err != nil {
+		t.Fatal(err)
 	}
 	logi := strings.TrimPrefix(phys, root)
 	return logi, phys
@@ -159,8 +165,8 @@ func TestHandleGet_NotFound(t *testing.T) {
 	err := HandleGet(&gnoi_file_pb.GetRequest{
 		RemoteFile: filepath.Join(logi, "no-such-file"),
 	}, newFakeGetServer())
-	if err == nil || status.Code(err) != codes.NotFound {
-		t.Fatalf("expected NotFound, got %v", err)
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("expected uniform PermissionDenied, got %v", err)
 	}
 }
 

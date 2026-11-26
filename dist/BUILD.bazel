@@ -17,7 +17,7 @@ installed_runtime_test(name = "installed_runtime_test")
 sonic_deploy_tar(
     name = "binaries",
     binaries = {
-        "usr/sbin/telemetry uid=0 gid=0 mode=0755 type=file": "//telemetry",
+        "usr/sbin/telemetry uid=0 gid=0 mode=0755 type=file": "//cmd/telemetry",
         "usr/sbin/gnmi_get uid=0 gid=0 mode=0755 type=file": "@com_github_google_gnxi//gnmi_get",
         "usr/sbin/gnmi_set uid=0 gid=0 mode=0755 type=file": "@com_github_google_gnxi//gnmi_set",
         "usr/sbin/gnmi_cli uid=0 gid=0 mode=0755 type=file": "@com_github_openconfig_gnmi//cmd/gnmi_cli",

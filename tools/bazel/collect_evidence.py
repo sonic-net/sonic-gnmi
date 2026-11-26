@@ -41,7 +41,7 @@ def main():
     complete = all(value == 'success' for value in results.values())
     if results['source_test'] == 'success':
         required = ['sonic_db_config', 'sonic_service_client', 'sonic_data_client',
-                    'gnmi_server', 'telemetry', 'dialout/dialout_client']
+                    'gnmi_server', 'cmd/telemetry', 'dialout/dialout_client']
         for package in required:
             logs = list((evidence / 'tests' / package).glob('*/test.log'))
             if not logs or not any('--- PASS:' in p.read_text(errors='replace') for p in logs):
@@ -84,7 +84,7 @@ def main():
         'pull_request_head': head, 'pull_request_base': base,
         'machine': platform.machine(), 'os_release': Path('/etc/os-release').read_text(),
         'target': '@sonic_build_infra//platforms:x86_64_trixie',
-        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.25.9',
+        'bazel': Path('.bazelversion').read_text().strip(), 'go_sdk': '1.26.7',
         'consumer_compilation_mode': 'fastbuild', 'consumer_strip': 'always',
         'complete': complete, 'results': results, 'payload_sha256': payloads,
     }

@@ -1,0 +1,26 @@
+load("//tools/bazel:source_files.bzl", "source_files")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+
+go_library(
+    name = "authentication",
+    srcs = ["authentication.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/authentication",
+    visibility = ["//:__subpackages__"],
+    deps = [
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "authentication_test",
+    srcs = ["authentication_test.go"],
+    embed = [":authentication"],
+    deps = [
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+source_files()

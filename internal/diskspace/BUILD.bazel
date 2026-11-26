@@ -9,12 +9,6 @@ go_library(
     visibility = ["//:__subpackages__"],
 )
 
-alias(
-    name = "go_default_library",
-    actual = ":diskspace",
-    visibility = ["//:__subpackages__"],
-)
-
 native_go_test(
     name = "diskspace_test",
     srcs = ["diskspace_test.go"],

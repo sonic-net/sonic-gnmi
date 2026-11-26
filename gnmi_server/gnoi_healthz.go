@@ -216,6 +216,11 @@ func (srv *HealthzServer) Get(ctx context.Context, req *healthz.GetRequest) (*he
 }
 
 func (srv *HealthzServer) Artifact(req *healthz.ArtifactRequest, stream healthz.Healthz_ArtifactServer) error {
+	_, err := authenticate(srv.config, stream.Context(), "gnoi", false)
+	if err != nil {
+		log.Errorf("Healthz.Artifact authentication failed: %v", err)
+		return err
+	}
 	log.V(1).Infof("Artifact RPC Get request ID: %+v", req.GetId())
 	file := req.GetId()
 	allowedDir := "/tmp/dump"

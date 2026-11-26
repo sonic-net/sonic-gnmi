@@ -12,16 +12,16 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//common_utils",
-        "@sonic_mgmt_common//translib",
-        "@sonic_mgmt_common//translib/ocbinds",
-        "@sonic_mgmt_common//translib/path",
-        "@sonic_mgmt_common//translib/tlerr",
         "@com_github_golang_glog//:glog",
         "@com_github_openconfig_gnmi//errlist",
         "@com_github_openconfig_gnmi//proto/gnmi",
         "@com_github_openconfig_ygot//ygot",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
+        "@sonic_mgmt_common//translib",
+        "@sonic_mgmt_common//translib/ocbinds",
+        "@sonic_mgmt_common//translib/path",
+        "@sonic_mgmt_common//translib/tlerr",
     ],
 )
 
@@ -34,13 +34,13 @@ native_go_test(
     ],
     embed = [":transl_utils"],
     deps = [
-        "@sonic_mgmt_common//translib",
-        "@sonic_mgmt_common//translib/ocbinds",
-        "@sonic_mgmt_common//translib/tlerr",
         "@com_github_openconfig_gnmi//proto/gnmi",
         "@com_github_openconfig_ygot//ygot",
         "@com_github_openconfig_ygot//ytypes",
         "@com_github_stretchr_testify//assert",
+        "@sonic_mgmt_common//translib",
+        "@sonic_mgmt_common//translib/ocbinds",
+        "@sonic_mgmt_common//translib/tlerr",
     ],
 )
 

@@ -4,21 +4,32 @@ load("//tools/bazel:source_files.bzl", "source_files")
 
 go_library(
     name = "download",
-    srcs = ["download.go"],
+    srcs = [
+        "download.go",
+        "remote.go",
+    ],
     importpath = "github.com/sonic-net/sonic-gnmi/internal/download",
     visibility = ["//:__subpackages__"],
-)
-
-alias(
-    name = "go_default_library",
-    actual = ":download",
-    visibility = ["//:__subpackages__"],
+    deps = [
+        "//pkg/hostfs",
+        "@com_github_pkg_sftp//:sftp",
+        "@org_golang_x_crypto//ssh",
+        "@org_golang_x_crypto//ssh/knownhosts",
+    ],
 )
 
 native_go_test(
     name = "download_test",
-    srcs = ["download_test.go"],
+    srcs = [
+        "download_test.go",
+        "remote_test.go",
+    ],
     embed = [":download"],
+    deps = [
+        "@com_github_pkg_sftp//:sftp",
+        "@org_golang_x_crypto//ssh",
+        "@org_golang_x_crypto//ssh/knownhosts",
+    ],
 )
 
 source_files()

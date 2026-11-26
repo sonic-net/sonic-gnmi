@@ -47,7 +47,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           source = Path('.bazelrc').read_text()
-          main = 'https://raw.githubusercontent.com/securely1g/sonic-bazel-registry/main'
+          main = 'https://raw.githubusercontent.com/sonic-net/sonic-bazel-registry/main'
           assert source.count(main) == 1
           caches = [line for line in (Path.home() / '.bazelrc').read_text().splitlines()
                     if line.startswith(('build --disk_cache=', 'common --repository_cache='))]
@@ -60,6 +60,8 @@ jobs:
           echo 'BAZEL_COMMAND=bazel --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=/tmp/gnmi-ci.bazelrc' >> "$GITHUB_ENV"
       - name: Verify original vendor patch parity
         run: python3 tools/bazel/vendor_patches.py --check
+      - name: Check upstream pure build-tag boundaries
+        run: make -f pure.mk check-tags check-tags-test
       - name: Verify permission failures as a non-root sandbox user
         run: |
           $BAZEL_COMMAND test --nocache_test_results --test_filter='^TestCopyAndRemoveDstError$' \

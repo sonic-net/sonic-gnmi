@@ -5,12 +5,17 @@ import (
 
 	gnoioras "github.com/sonic-net/sonic-gnmi/pkg/gnoi/oras"
 	gnoi_oras_pb "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Pull is the entry point for the SONiC ORAS Pull RPC. Authentication is
 // applied the same way as the other gNOI services on this server; the actual
 // pull logic lives in pkg/gnoi/oras.
 func (srv *OrasServer) Pull(req *gnoi_oras_pb.PullRequest, stream gnoi_oras_pb.Oras_PullServer) error {
+	if !isUnixPeer(stream.Context()) {
+		return status.Error(codes.PermissionDenied, "Oras.Pull requires a Unix domain socket")
+	}
 	log.Infof("GNOI Oras Pull RPC called with registry=%s repository=%s ref=%s",
 		req.GetRegistry(), req.GetRepository(), pullRefDescription(req))
 	if _, err := authenticate(srv.config, stream.Context(), "gnoi", true); err != nil {

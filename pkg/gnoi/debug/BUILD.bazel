@@ -6,16 +6,14 @@ go_library(
     name = "debug",
     srcs = [
         "debug.go",
-        "validate.go",
-        "whitelist.go",
+        "policy.go",
     ],
     importpath = "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug",
     visibility = ["//visibility:public"],
     deps = [
         "//internal/exec",
-        "//proto/gnoi/debug",
-        "@cc_mvdan_sh_v3//syntax",
-        "@com_github_golang_glog//:glog",
+        "@com_github_google_shlex//:shlex",
+        "@com_github_openconfig_gnoi//debug",
         "@in_gopkg_yaml_v3//:yaml_v3",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
@@ -26,16 +24,16 @@ native_go_test(
     name = "debug_test",
     srcs = [
         "debug_test.go",
-        "validate_test.go",
-        "whitelist_test.go",
+        "policy_test.go",
     ],
     embed = [":debug"],
     deps = [
         "//internal/exec",
-        "//proto/gnoi/debug",
+        "@com_github_openconfig_gnoi//debug",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
     ],
 )
 

@@ -1,0 +1,243 @@
+package file
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	maxReadPathLength = 4096
+	// Leave descriptor headroom for unrelated server I/O.
+	maxReadDirectories = 64
+)
+
+var errReadFileType = errors.New("not a regular file or directory")
+
+func isContainerInternalReadPath(path string) bool {
+	clean := filepath.Clean(path)
+	return clean == "/mnt/host" || strings.HasPrefix(clean, "/mnt/host/")
+}
+
+func openPublicReadRoot() (*os.File, error) {
+	root := hostRoot
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		root = "/"
+	} else if err != nil {
+		return nil, err
+	}
+	fd, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), root), nil
+}
+
+func openPublicReadFile(path string, links *int) (*os.File, error) {
+	if len(path) >= maxReadPathLength {
+		return nil, unix.ENAMETOOLONG
+	}
+	if links == nil {
+		links = new(int)
+	}
+	root, err := openPublicReadRoot()
+	if err != nil {
+		return nil, err
+	}
+	return walkPublicReadFile([]*os.File{root}, path, links, 0)
+}
+
+func closePublicReadDirectories(directories []*os.File) {
+	for _, directory := range directories {
+		directory.Close()
+	}
+}
+
+func openPublicReadAncestors(parent *os.File) ([]*os.File, error) {
+	root, err := openPublicReadRoot()
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	rootInfo, err := root.Stat()
+	if err != nil {
+		return nil, err
+	}
+	fd, err := unix.Openat(int(parent.Fd()), ".", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	directories := []*os.File{os.NewFile(uintptr(fd), parent.Name())}
+	defer func() { closePublicReadDirectories(directories) }()
+	// Recover a pinned root-to-parent stack without reopening the request path.
+	// Relative symlinks can then traverse .. while absolute links use the host root.
+	for {
+		current := directories[len(directories)-1]
+		if err := checkPublicReadMode(current, 0001); err != nil {
+			return nil, err
+		}
+		info, err := current.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if os.SameFile(info, rootInfo) {
+			break
+		}
+		if len(directories) >= maxReadDirectories {
+			return nil, os.ErrPermission
+		}
+		fd, err := unix.Openat(int(current.Fd()), "..", unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return nil, err
+		}
+		ancestor := os.NewFile(uintptr(fd), "..")
+		directories = append(directories, ancestor)
+		ancestorInfo, err := ancestor.Stat()
+		if err != nil {
+			return nil, err
+		}
+		if os.SameFile(info, ancestorInfo) {
+			return nil, os.ErrPermission
+		}
+	}
+	for i, j := 0, len(directories)-1; i < j; i, j = i+1, j-1 {
+		directories[i], directories[j] = directories[j], directories[i]
+	}
+	stack := directories
+	directories = nil
+	return stack, nil
+}
+
+func openPublicReadChild(directories []*os.File, name string, links int) (*os.File, error) {
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "/") {
+		return nil, os.ErrPermission
+	}
+	stack := append([]*os.File(nil), directories...)
+	return walkPublicReadFile(stack, name, &links, len(stack))
+}
+
+// Walk the original path so resolving a symlink cannot skip a private ancestor.
+func walkPublicReadFile(directories []*os.File, path string, links *int, borrowed int) (_ *os.File, err error) {
+	defer func() {
+		if errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) || errors.Is(err, unix.ENAMETOOLONG) {
+			err = os.ErrPermission
+		}
+	}()
+	// A listing owns its shared prefix; each child owns only newly opened ancestors.
+	truncate := func(length int) {
+		for len(directories) > length {
+			last := len(directories) - 1
+			if last >= borrowed {
+				directories[last].Close()
+			}
+			directories = directories[:last]
+		}
+		if borrowed > length {
+			borrowed = length
+		}
+	}
+	defer func() { truncate(0) }()
+	pending := strings.Split(path, "/")
+	for len(pending) != 0 {
+		part := pending[0]
+		pending = pending[1:]
+		if part == "" || part == "." {
+			continue
+		}
+		current := directories[len(directories)-1]
+		if err := checkPublicReadMode(current, 0001); err != nil {
+			return nil, err
+		}
+		if part == ".." {
+			if len(directories) == 1 {
+				return nil, os.ErrPermission
+			}
+			truncate(len(directories) - 1)
+			continue
+		}
+		fd, err := unix.Openat(int(current.Fd()), part, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return nil, err
+		}
+		pinned := os.NewFile(uintptr(fd), part)
+		info, err := pinned.Stat()
+		if err != nil {
+			pinned.Close()
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			*links += 1
+			buffer := make([]byte, 4096)
+			n, err := unix.Readlinkat(fd, "", buffer)
+			pinned.Close()
+			if err != nil {
+				return nil, err
+			}
+			if *links > 40 || n == len(buffer) {
+				return nil, os.ErrPermission
+			}
+			target := string(buffer[:n])
+			if filepath.IsAbs(target) {
+				truncate(1)
+			}
+			pending = append(strings.Split(target, "/"), pending...)
+			continue
+		}
+		if info.IsDir() {
+			if len(directories) >= maxReadDirectories {
+				pinned.Close()
+				return nil, os.ErrPermission
+			}
+			directories = append(directories, pinned)
+			continue
+		}
+		defer pinned.Close()
+		if len(pending) != 0 {
+			return nil, os.ErrPermission
+		}
+		return openPublicReadTarget(pinned)
+	}
+	return openPublicReadTarget(directories[len(directories)-1])
+}
+
+func openPublicReadTarget(pinned *os.File) (*os.File, error) {
+	info, err := pinned.Stat()
+	if err != nil {
+		return nil, err
+	}
+	required := os.FileMode(0004)
+	if info.IsDir() {
+		required |= 0001
+	}
+	if err := checkPublicReadMode(pinned, required); err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() && !info.IsDir() {
+		return nil, errReadFileType
+	}
+	return os.OpenFile("/proc/self/fd/"+strconv.Itoa(int(pinned.Fd())), os.O_RDONLY|unix.O_NONBLOCK, 0)
+}
+
+func checkPublicReadMode(file *os.File, required os.FileMode) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Mode().Perm()&required != required {
+		return os.ErrPermission
+	}
+	// Mode bits cannot describe named-user/group ACL restrictions. Reject
+	// extended access ACLs instead of treating the "other" bits as sufficient.
+	_, err = unix.Getxattr("/proc/self/fd/"+strconv.Itoa(int(file.Fd())), "system.posix_acl_access", nil)
+	if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.ENOTSUP) {
+		return nil
+	}
+	if err == nil {
+		return os.ErrPermission
+	}
+	return err
+}

@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
-import tarfile
 import tempfile
 
 
@@ -27,8 +26,7 @@ def main():
         root = Path(directory)
         runtime_root, debug_root = root / 'runtime', root / 'symbols'
         for archive, destination in [(runtime, runtime_root), (debug, debug_root)]:
-            with tarfile.open(archive) as tar:
-                tar.extractall(destination, filter='data')
+            shutil.unpack_archive(archive, destination, format='tar', filter='data')
         empty = root / 'without-symbols'
         empty.mkdir()
         environment = dict(os.environ, DEBUGINFOD_URLS='', HOME=str(root))

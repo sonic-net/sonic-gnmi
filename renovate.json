@@ -1,0 +1,64 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["local>sonic-net/sonic-pipelines//renovate/default"],
+  "ignoreDeps": ["go"],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+    "doc/**"
+  ],
+  "vulnerabilityAlerts": {
+    "groupName": "{{{datasource}}} security updates{{#if (or isMajor (includes (split 'github.com/antchfx/jsonquery github.com/antchfx/xmlquery github.com/antchfx/xpath github.com/fsnotify/fsnotify github.com/golang/glog github.com/google/gnxi github.com/openconfig/gnmi github.com/openconfig/gnoi github.com/openconfig/goyang github.com/openconfig/ygot google.golang.org/grpc/security/advancedtls' ' ') depName))}} for {{{depName}}}{{/if}}"
+  },
+  "packageRules": [
+    {
+      "description": "Modules the build patches in vendor/, through this repository's patches or sonic-mgmt-common's patches/apply.sh, and openconfig/gnoi, whose newer versions raise the patched fsnotify through openconfig/bootz. A bump has to refresh the patch, so it opens on its own, and only on dashboard approval. A security update still opens, on its own (see vulnerabilityAlerts above, which repeats this list), and the patched-module label keeps the preset from labeling it automerge.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/antchfx/jsonquery",
+        "github.com/antchfx/xmlquery",
+        "github.com/antchfx/xpath",
+        "github.com/fsnotify/fsnotify",
+        "github.com/golang/glog",
+        "github.com/google/gnxi",
+        "github.com/openconfig/gnmi",
+        "github.com/openconfig/gnoi",
+        "github.com/openconfig/goyang",
+        "github.com/openconfig/ygot",
+        "google.golang.org/grpc/security/advancedtls"
+      ],
+      "groupName": null,
+      "minimumReleaseAge": "7 days",
+      "dependencyDashboardApproval": true,
+      "addLabels": ["patched-module"],
+      "prBodyNotes": ["The build patches this module in `vendor/`, through this repository's `patches/` or sonic-mgmt-common's `patches/apply.sh`. A patch that still applies may no longer be correct for the new version, so check each one against it. An `openconfig/gnoi` update raises the patched `fsnotify` through `openconfig/bootz`; refresh its patch. This update is never labeled `automerge`."]
+    },
+    {
+      "description": "Renovate merges the security updates the preset labels automerge itself, once every check on the head commit has passed, with the renovate-approve app's approval. The condition repeats the preset's automerge rule, and the two change together.",
+      "matchJsonata": ["isVulnerabilityAlert = true and $not('patched-module' in addLabels)"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false,
+      "assignAutomerge": true
+    },
+    {
+      "description": "go.mod pins sonic-mgmt-common to a master commit, so Go and Renovate resolve it without a checkout beside this one; the build replaces it with that checkout. Moving the pin weekly keeps go.mod and go.sum close to sonic-mgmt-common's own requirements. The versions it brings in are already reviewed there, so it merges once every check passes. It waits until sonic-mgmt-common's head commit is 7 days old, the release age Semgrep's blocking renovate-missing-minimum-release-age rule requires, so the pin moves after a week with no commits there. The preset rebases only labeled security updates when they fall behind, so this rule does too, or a base branch that requires branches up to date would hold it forever.",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["github.com/Azure/sonic-mgmt-common"],
+      "matchUpdateTypes": ["digest"],
+      "minimumReleaseAge": "7 days",
+      "schedule": ["before 6am on monday"],
+      "rebaseWhen": "behind-base-branch",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    }
+  ]
+}

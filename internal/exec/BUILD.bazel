@@ -4,14 +4,11 @@ load("//tools/bazel:source_files.bzl", "source_files")
 
 go_library(
     name = "exec",
-    srcs = ["command.go"],
+    srcs = [
+        "command.go",
+        "plan.go",
+    ],
     importpath = "github.com/sonic-net/sonic-gnmi/internal/exec",
-    visibility = ["//:__subpackages__"],
-)
-
-alias(
-    name = "go_default_library",
-    actual = ":exec",
     visibility = ["//:__subpackages__"],
 )
 
