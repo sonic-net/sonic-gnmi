@@ -41,7 +41,7 @@ def main():
     complete = all(value == 'success' for value in results.values())
     if results['source_test'] == 'success':
         required = ['sonic_db_config', 'sonic_service_client', 'sonic_data_client',
-                    'gnmi_server', 'telemetry', 'dialout/dialout_client']
+                    'gnmi_server', 'cmd/telemetry', 'dialout/dialout_client']
         for package in required:
             logs = list((evidence / 'tests' / package).glob('*/test.log'))
             if not logs or not any('--- PASS:' in p.read_text(errors='replace') for p in logs):
