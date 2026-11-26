@@ -66,6 +66,19 @@ def unpack(archive, destination):
     shutil.unpack_archive(archive, destination, format="tar", filter="data")
 
 
+def libyang_header_targets(query):
+    """Resolve the public cc_library, or the library its alias exposes."""
+    for expression in (
+        "labels(hdrs, @libyang//:public_headers)",
+        'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))',
+    ):
+        output = query(expression)
+        labels = [line.split()[0] for line in output.splitlines() if line.startswith("@")]
+        if labels:
+            return expression, labels
+    raise RuntimeError("The selected @libyang//:public_headers exports no header targets")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--work-dir", type=Path, required=True)
@@ -117,13 +130,10 @@ def main():
         labels = {target: repo + target if target.startswith("//") else target for target in targets}
         bazel("build", list(labels.values()), log_suffix=repo)
         for target, label in labels.items():
-            expression = "labels(hdrs," + label + ")" if target.endswith(":public_headers") else label
+            expression = label
             if target.endswith(":public_headers"):
-                # A header-only CcInfo need not materialize all its generated
-                # headers when requested alone. Request its declared hdrs too.
-                header_labels = bazel("cquery", [expression], ["--output=label"], "-headers")
-                header_targets = [line.split()[0] for line in header_labels.splitlines() if line.startswith("@")]
-                assert header_targets, header_labels
+                expression, header_targets = libyang_header_targets(
+                    lambda expr: bazel("cquery", [expr], ["--output=label"], "-headers"))
                 bazel("build", header_targets, log_suffix="-headers")
             files = bazel("cquery", [expression], ["--output=files"])
             # Bazel diagnostics share the captured stream; select actual paths.
