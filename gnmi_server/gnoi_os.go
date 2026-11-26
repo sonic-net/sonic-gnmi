@@ -190,7 +190,9 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 	}
 
 	if _, err := f.Write(transferContent); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			log.Errorf("processTransferContent: Failed to close %s after write error: %v", safePath, closeErr)
+		}
 		log.Errorf("processTransferContent: Failed to write to file: %s, error: %v", safePath, err)
 		return &ospb.InstallResponse{
 			Response: &ospb.InstallResponse_InstallError{
