@@ -11,7 +11,6 @@ import secrets
 import shlex
 import socket
 import subprocess
-import tarfile
 import tempfile
 import time
 
@@ -51,8 +50,7 @@ def main():
         runtime, work = root / 'runtime', root / 'work'
         runtime.mkdir(); work.mkdir()
         for archive in (args.runtime, args.models):
-            with tarfile.open(archive) as tar:
-                tar.extractall(runtime, filter=helper.runtime_member_filter)
+            shutil.unpack_archive(archive, runtime, format='tar', filter=helper.runtime_member_filter)
         source_root = args.anchor.parent.parent
         for fixture in fixtures:
             output = work / fixture.relative_to(source_root)
@@ -130,14 +128,13 @@ def main():
         if args.clients:
             clients = work / 'build/bin'
             clients.mkdir(parents=True)
-            with tarfile.open(args.clients) as tar:
-                tar.extractall(root / 'clients', filter=helper.runtime_member_filter)
+            shutil.unpack_archive(args.clients, root / 'clients', format='tar', filter=helper.runtime_member_filter)
             for binary in (root / 'clients/usr/sbin').iterdir():
                 output = clients / binary.name
                 launcher(output, binary)
             environment['SONIC_TEST_NATIVE_BIN'] = str(root / 'clients/usr/sbin')
-            environment['SONIC_TEST_PYTEST'] = str(args.pytest)
             private_bin = root / 'bin'; private_bin.mkdir()
+            (private_bin / 'pytest').symlink_to(args.pytest)
             redis_cli = private_bin / 'redis-cli'
             redis_cli.write_text('#!/bin/sh\nexec ' + shlex.join([
                 str(loader), '--library-path', libpath, str(runtime / 'usr/bin/redis-cli'),

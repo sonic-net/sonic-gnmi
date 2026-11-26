@@ -2,7 +2,6 @@
 """Run the real subscription regression with independently built owner inputs."""
 import argparse
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -13,7 +12,6 @@ import subprocess
 import tarfile
 import tempfile
 import time
-import urllib.request
 
 
 CASE = "TestClientRunConcurrentClose"
@@ -42,9 +40,9 @@ def owner(work, name, pin):
     archive = work / (name + "-" + pin["revision"] + ".tar.gz")
     if not archive.exists():
         temporary = archive.with_suffix(".download")
-        with urllib.request.urlopen(f"https://github.com/securely1g/{name}/archive/{pin['revision']}.tar.gz") as source:
-            with temporary.open("wb") as output:
-                shutil.copyfileobj(source, output)
+        url = f"https://github.com/securely1g/{name}/archive/{pin['revision']}.tar.gz"
+        subprocess.run(["curl", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
+                        "--silent", "--show-error", "--output", str(temporary), url], check=True)
         if digest(temporary) != pin["sha256"]:
             raise AssertionError(f"Unexpected {name} source archive")
         temporary.replace(archive)
@@ -57,7 +55,7 @@ def owner(work, name, pin):
     with tarfile.open(archive) as source:
         prefix = name + "-" + pin["revision"]
         assert all(m.name == prefix or m.name.startswith(prefix + "/") for m in source)
-        source.extractall(work, filter="data")
+    shutil.unpack_archive(archive, work, format="tar", filter="data")
     (work / prefix).rename(destination)
     marker.write_text(json.dumps(pin, sort_keys=True) + "\n")
     return destination
@@ -65,8 +63,7 @@ def owner(work, name, pin):
 
 def unpack(archive, destination):
     destination.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as package:
-        package.extractall(destination, filter="data")
+    shutil.unpack_archive(archive, destination, format="tar", filter="data")
 
 
 def main():
@@ -151,8 +148,9 @@ def main():
     if not tested.exists():
         tested.mkdir()
         archive = subprocess.check_output(["git", "archive", "HEAD"], cwd=source)
-        with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
-            tree.extractall(tested, filter="data")
+        exact_archive = test_root / "gnmi-source.tar"
+        exact_archive.write_bytes(archive)
+        shutil.unpack_archive(exact_archive, tested, format="tar", filter="data")
     sdk, runtime = test_root / "sdk", test_root / "runtime"
     staged = test_root / "owner-artifacts.json"
     if staged.exists():
@@ -235,9 +233,11 @@ def main():
     exact = production.read_bytes()
     baseline_file = work / ("client_subscribe-" + pins["baseline"]["revision"] + ".go")
     if not baseline_file.exists():
-        with urllib.request.urlopen("https://raw.githubusercontent.com/securely1g/sonic-gnmi/" +
-                pins["baseline"]["revision"] + "/gnmi_server/client_subscribe.go") as response:
-            baseline = response.read()
+        # Download from the canonical fixed origin over HTTPS and verify the pinned bytes below.
+        url = ("https://raw.githubusercontent.com/sonic-net/sonic-gnmi/" +
+               pins["baseline"]["revision"] + "/gnmi_server/client_subscribe.go")
+        baseline = subprocess.check_output(["curl", "--fail", "--location", "--proto", "=https",
+                                            "--proto-redir", "=https", "--silent", "--show-error", url])
         assert hashlib.sha256(baseline).hexdigest() == pins["baseline"]["sha256"]
         baseline_file.write_bytes(baseline)
     baseline = baseline_file.read_bytes()

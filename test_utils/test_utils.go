@@ -126,11 +126,7 @@ func CleanUpMultiInstance() error {
 // PytestCommand uses the declared runner when Bazel manages the test runtime.
 // Make keeps its ordinary pytest executable and environment.
 func PytestCommand(directory, marker string) *exec.Cmd {
-	executable := os.Getenv("SONIC_TEST_PYTEST")
-	if executable == "" {
-		executable = "pytest"
-	}
-	command := exec.Command(executable, "-m", marker)
+	command := exec.Command("pytest", "-m", marker)
 	command.Dir = directory
 	if os.Getenv("SONIC_TEST_REDIS_MANAGED") == "1" {
 		for _, variable := range os.Environ() {
