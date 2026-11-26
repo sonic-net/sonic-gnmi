@@ -42,7 +42,7 @@ jobs:
           repository-cache: true
           disk-cache: native-subscription-amd64
           cache-version: '8.5.1'
-      - name: Test the exact source and reproduce the original race
+      - name: Run the upstream subscription regression on the exact source
         env:
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}

@@ -20,6 +20,7 @@ load("//tools/bazel:source_files.bzl", "source_files")
 
 exports_files([
     "go.bazel.work",
+    "go.bazel.work.sum",
     "MODULE.bazel",
     "go.mod",
     "go.sum",

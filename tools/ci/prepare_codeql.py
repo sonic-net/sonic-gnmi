@@ -28,7 +28,8 @@ digest, run, unpack = _native.digest, _native.run, _native.unpack
 ROOT = Path(__file__).resolve().parents[2]
 TAGS = "gnmi_translib_write,gnmi_native_write"
 MGMT_MODULE = "github.com/Azure/sonic-mgmt-common"
-LIBNL_RUNTIME_TARGETS = _native.LIBNL_RUNTIME_TARGETS
+LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
+                         "@libnl3//:libnl-nf-3_pkg"]
 TARGETS = ["@sonic_swss_common//dist:libswsscommon_sdk",
            "@sonic_swss_common//dist:libswsscommon_pkg",
            "@sonic_swss_common//goext:swsscommon_go_gen",
@@ -118,14 +119,19 @@ def prepare(work, evidence):
                    log=evidence / f"inputs-{sequence:02d}-{operation}.log").stdout
 
     bazel("build", TARGETS)
-    headers = bazel("cquery", [_native.LIBYANG_HEADER_QUERY, "--output=label"])
+    hdr_expr = "labels(hdrs, @libyang//:public_headers)"
+    headers = bazel("cquery", [hdr_expr, "--output=label"])
     labels = [line.split()[0] for line in headers.splitlines() if line.startswith("@")]
+    if not labels:
+        hdr_expr = 'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))'
+        headers = bazel("cquery", [hdr_expr, "--output=label"])
+        labels = [line.split()[0] for line in headers.splitlines() if line.startswith("@")]
     assert labels
     bazel("build", labels)
     execution = work / "bazel-output/execroot/_main"
     outputs = {}
     for target in TARGETS:
-        expression = (_native.LIBYANG_HEADER_QUERY if target.endswith(":public_headers")
+        expression = (hdr_expr if target.endswith(":public_headers")
                       else "config(" + target + ", target)")
         result = bazel("cquery", [expression, "--output=files"])
         paths = [execution / line for line in result.splitlines()

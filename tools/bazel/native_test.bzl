@@ -88,8 +88,7 @@ def native_go_test(name, **kwargs):
         tags = ["exclusive"] if native.package_name() in ["gnmi_server", "dialout/dialout_client", "cmd/telemetry", "sonic_data_client"] else [],
         args = ["--suite=" + native.package_name()] +
                ["--" + key + "=$(location " + value + ")" for key, value in inputs.items()] +
-               ["--fixtures", "$(rootpaths //:test_data)"] +
-               ["$(rootpaths %s)" % fixture for fixture in fixtures],
+               ["--fixtures", "$(rootpaths //:test_data)"],
         data = inputs.values() + fixtures + ["//:test_data"],
     )
 

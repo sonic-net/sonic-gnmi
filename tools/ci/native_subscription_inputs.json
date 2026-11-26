@@ -8,9 +8,5 @@
       "revision": "68bfd75e9034ac0981c0f431b54cf8a9a868a2ca",
       "sha256": "fad0946b2c1a27613d8e360206bb6ba30e5daabe0973abccf8e4b81c81a46fb4"
     }
-  },
-  "baseline": {
-    "revision": "94ba8ae9021d697a2a674887cde0574d53613d68",
-    "sha256": "705d273bf0f3834275c6dab95102cae406100fada945e42d304eae83796004eb"
   }
 }

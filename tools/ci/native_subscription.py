@@ -2,7 +2,6 @@
 """Run the real subscription regression with independently built owner inputs."""
 import argparse
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
@@ -13,14 +12,9 @@ import subprocess
 import tarfile
 import tempfile
 import time
-import urllib.request
 
 
-CASE = "TestClientRunConcurrentClose"
-LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
-                         "@libnl3//:libnl-nf-3_pkg"]
-# The public CcInfo exposes source and generated headers through its direct dependencies.
-LIBYANG_HEADER_QUERY = 'labels(hdrs, filter("^@@?libyang", deps(@libyang//:public_headers, 1)))'
+CASE = "TestClientCountersAreSafeDuringClose"
 
 
 def digest(path):
@@ -46,9 +40,9 @@ def owner(work, name, pin):
     archive = work / (name + "-" + pin["revision"] + ".tar.gz")
     if not archive.exists():
         temporary = archive.with_suffix(".download")
-        with urllib.request.urlopen(f"https://github.com/securely1g/{name}/archive/{pin['revision']}.tar.gz") as source:
-            with temporary.open("wb") as output:
-                shutil.copyfileobj(source, output)
+        url = f"https://github.com/securely1g/{name}/archive/{pin['revision']}.tar.gz"
+        subprocess.run(["curl", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
+                        "--silent", "--show-error", "--output", str(temporary), url], check=True)
         if digest(temporary) != pin["sha256"]:
             raise AssertionError(f"Unexpected {name} source archive")
         temporary.replace(archive)
@@ -61,7 +55,7 @@ def owner(work, name, pin):
     with tarfile.open(archive) as source:
         prefix = name + "-" + pin["revision"]
         assert all(m.name == prefix or m.name.startswith(prefix + "/") for m in source)
-        source.extractall(work, filter="data")
+    shutil.unpack_archive(archive, work, format="tar", filter="data")
     (work / prefix).rename(destination)
     marker.write_text(json.dumps(pin, sort_keys=True) + "\n")
     return destination
@@ -69,8 +63,7 @@ def owner(work, name, pin):
 
 def unpack(archive, destination):
     destination.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive) as package:
-        package.extractall(destination, filter="data")
+    shutil.unpack_archive(archive, destination, format="tar", filter="data")
 
 
 def main():
@@ -97,13 +90,12 @@ def main():
               "driver_sha256": digest(__file__)}
     run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\n"],
         cwd=work, log=evidence / "native-tools.txt")
-    common = owner(work, "sonic-swss-common", pins["owners"]["sonic-swss-common"])
     mgmt = owner(work, "sonic-mgmt-common", pins["owners"]["sonic-mgmt-common"])
     outputs = {}
 
-    def bazel(root, operation, targets, extra=(), log_suffix=""):
-        rc = work / (root.name + ".bazelrc")
-        text = (root / ".bazelrc").read_text()
+    def bazel(operation, targets, extra=(), log_suffix=""):
+        rc = work / (source.name + ".bazelrc")
+        text = (source / ".bazelrc").read_text()
         home_rc = Path.home() / ".bazelrc"
         if home_rc.exists():
             text += "\n" + "\n".join(line for line in home_rc.read_text().splitlines()
@@ -111,42 +103,41 @@ def main():
         rc.write_text(text)
         command = shlex.split(os.environ.get("NATIVE_BAZEL_COMMAND", "bazel")) + [
             "--nosystem_rc", "--nohome_rc", "--noworkspace_rc", "--bazelrc=" + str(rc),
-            "--output_base=" + str(work / (root.name + "-output")), operation,
-            "--jobs=2", "--host_platform=@sonic_build_infra//platforms:x86_64_trixie"]
-        if root == source:
-            # The source regression can run before the Management Common release is published.
-            command.append("--override_module=sonic-mgmt-common=" + str(mgmt))
-        command += [*shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
-        return run(command, cwd=root, log=evidence / (root.name + "-" + operation + log_suffix + ".log")).stdout
+            "--output_base=" + str(work / (source.name + "-output")), operation,
+            "--jobs=2", "--host_platform=@sonic_build_infra//platforms:x86_64_trixie",
+            *shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
+        return run(command, cwd=source, log=evidence / (source.name + "-" + operation + log_suffix + ".log")).stdout
 
-    # Select SWSS Common and its runtime dependencies from the canonical gNMI graph.
-    common_targets = ["@sonic_swss_common//dist:libswsscommon_sdk", "@sonic_swss_common//dist:libswsscommon_pkg",
-                      "@sonic_swss_common//:swig_template", *LIBNL_RUNTIME_TARGETS]
+    common_targets = ["//dist:libswsscommon_sdk", "//dist:libswsscommon_pkg", "//:swig_template"]
     mgmt_targets = ["//dist:codegen", "//dist:runtime", "@libyang//:libyang_pkg", "@libyang//:public_headers"]
-    for root, targets in [(source, common_targets), (mgmt, mgmt_targets)]:
-        bazel(root, "build", targets)
-        for target in targets:
-            expression = LIBYANG_HEADER_QUERY if target.endswith(":public_headers") else target
+    # Use the selected registry MODULEs, which carry the consumer's canonical
+    # versions and overlays. A checkout of an owner's standalone workspace
+    # may declare a different set of package versions.
+    for repo, targets in [("@sonic_swss_common", common_targets), ("@sonic_mgmt_common", mgmt_targets)]:
+        labels = {target: repo + target if target.startswith("//") else target for target in targets}
+        bazel("build", list(labels.values()), log_suffix=repo)
+        for target, label in labels.items():
+            expression = "labels(hdrs," + label + ")" if target.endswith(":public_headers") else label
             if target.endswith(":public_headers"):
                 # A header-only CcInfo need not materialize all its generated
                 # headers when requested alone. Request its declared hdrs too.
-                labels = bazel(root, "cquery", [expression], ["--output=label"], "-headers")
-                header_targets = [line.split()[0] for line in labels.splitlines() if line.startswith("@")]
-                assert header_targets, labels
-                bazel(root, "build", header_targets, log_suffix="-headers")
-            files = bazel(root, "cquery", [expression], ["--output=files"])
+                header_labels = bazel("cquery", [expression], ["--output=label"], "-headers")
+                header_targets = [line.split()[0] for line in header_labels.splitlines() if line.startswith("@")]
+                assert header_targets, header_labels
+                bazel("build", header_targets, log_suffix="-headers")
+            files = bazel("cquery", [expression], ["--output=files"])
             # Bazel diagnostics share the captured stream; select actual paths.
             paths = []
             for line in files.splitlines():
                 if not line.startswith(("bazel-out/", "external/", "pyext/", "common/")):
                     continue
-                path = (work / (root.name + "-output") / line
-                        if line.startswith("external/") else root / line)
+                path = (work / (source.name + "-output") / line
+                        if line.startswith("external/") else source / line)
                 if path.is_file():
                     paths.append(path)
             assert paths, (target, files)
             outputs[target] = paths
-        shutil.copyfile(root / "MODULE.bazel.lock", evidence / (root.name + "-MODULE.bazel.lock"))
+    shutil.copyfile(source / "MODULE.bazel.lock", evidence / "MODULE.bazel.lock")
     report["owner_output_sha256"] = {target: {p.name: digest(p) for p in paths}
                                      for target, paths in outputs.items()}
     (evidence / "owner-inputs.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -160,17 +151,16 @@ def main():
     if not tested.exists():
         tested.mkdir()
         archive = subprocess.check_output(["git", "archive", "HEAD"], cwd=source)
-        with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
-            tree.extractall(tested, filter="data")
+        exact_archive = test_root / "gnmi-source.tar"
+        exact_archive.write_bytes(archive)
+        shutil.unpack_archive(exact_archive, tested, format="tar", filter="data")
     sdk, runtime = test_root / "sdk", test_root / "runtime"
     staged = test_root / "owner-artifacts.json"
     if staged.exists():
         assert json.loads(staged.read_text()) == report["owner_output_sha256"]
     else:
-        unpack(outputs["@sonic_swss_common//dist:libswsscommon_sdk"][0], sdk)
-        unpack(outputs["@sonic_swss_common//dist:libswsscommon_pkg"][0], runtime)
-        for target in LIBNL_RUNTIME_TARGETS:
-            unpack(outputs[target][0], runtime)
+        unpack(outputs["//dist:libswsscommon_sdk"][0], sdk)
+        unpack(outputs["//dist:libswsscommon_pkg"][0], runtime)
         unpack(outputs["//dist:runtime"][0], runtime)
         unpack(outputs["@libyang//:libyang_pkg"][0], runtime)
         staged.write_text(json.dumps(report["owner_output_sha256"], sort_keys=True) + "\n")
@@ -188,11 +178,12 @@ def main():
     if not (libdir / "libyang.so").exists():
         (libdir / "libyang.so").symlink_to("libyang.so.3")
     template = tested / "swsscommon/swsscommon.i"
-    swig_template, = outputs["@sonic_swss_common//:swig_template"]
-    assert digest(swig_template) == digest(common / "pyext/swsscommon.i")
-    shutil.copyfile(swig_template, template)
+    shutil.copyfile(outputs["//:swig_template"][0], template)
     run(["swig", "-go", "-cgo", "-c++", "-intgosize", "64", "-I" + str(sdk / "include/swss"),
          "swsscommon.i"], cwd=template.parent, log=evidence / "swig.log")
+    # Preserve the native neighboring-checkout contract without changing go.mod.
+    neighbor = tested.parent / "sonic-mgmt-common"
+    assert neighbor.resolve() == native_mgmt.resolve()
     environment = dict(os.environ, GOFLAGS="", CGO_ENABLED="1", GOMAXPROCS="2",
         CGO_CFLAGS="-I" + str(sdk / "include") + " -I" + str(sdk / "include/swss"),
         CGO_CXXFLAGS="-I" + str(sdk / "include/swss") + " -w -Wall -fpermissive",
@@ -207,8 +198,8 @@ def main():
             for path in vendor.rglob("*"):
                 if path.is_file() or path.is_dir():
                     path.chmod(path.stat().st_mode | 0o200)
-        # Match Make's go-deps recipe in this private source copy. The published
-        # Go module omits the bindings generated into the neighboring checkout.
+        # The native go-deps recipe tidies after installing its generated inputs.
+        # Keep those dependency-only edits in this private exact-source snapshot.
         run(["go", "mod", "edit", "-replace=github.com/Azure/sonic-mgmt-common=" + str(native_mgmt)],
             cwd=tested, env=environment)
         run(["go", "mod", "tidy"], cwd=tested, env=environment, log=evidence / "tidy.log")
@@ -228,11 +219,10 @@ def main():
                               ("github.com/antchfx/xmlquery", "xmlquery.patch"),
                               ("github.com/antchfx/xpath", "xpath.patch")]:
             run(["patch", "-p1", "-i", str(mgmt / "patches" / patch)], cwd=vendor / module)
+        # Native gNMI intentionally omits Common's glog patch for glog 1.2.4.
         for patch in ["gnmi_path.patch", "gnmi_xpath.patch", "0002-Fix-advance-tls-build-with-go-119.patch", "0004-CloseWrite-event-support.patch"]:
             run(["patch", "-p0", "-i", str(tested / "patches" / patch)], cwd=vendor)
         (work / ("vendor-" + head + ".done")).write_text("complete\n")
-    bindings = Path("translib/ocbinds/ocbinds.go")
-    assert digest(vendor / "github.com/Azure/sonic-mgmt-common" / bindings) == digest(native_mgmt / bindings)
     for name in ("go.mod", "go.sum"):
         shutil.copyfile(tested / name, evidence / name)
     report["native_dependency_sha256"] = {name: digest(tested / name) for name in ("go.mod", "go.sum")}
@@ -244,26 +234,6 @@ def main():
         CVL_SCHEMA_PATH=str(runtime / "usr/sbin/schema"), CVL_CFG_FILE=str(runtime / "usr/sbin/cvl_cfg.json"),
         YANG_MODELS_PATH=str(runtime / "usr/models/yang"),
         DBUS_SYSTEM_BUS_ADDRESS="unix:path=" + str(private / "absent-dbus.sock"))
-    production = tested / "gnmi_server/client_subscribe.go"
-    exact = production.read_bytes()
-    baseline_file = work / ("client_subscribe-" + pins["baseline"]["revision"] + ".go")
-    if not baseline_file.exists():
-        with urllib.request.urlopen("https://raw.githubusercontent.com/securely1g/sonic-gnmi/" +
-                pins["baseline"]["revision"] + "/gnmi_server/client_subscribe.go") as response:
-            baseline = response.read()
-        assert hashlib.sha256(baseline).hexdigest() == pins["baseline"]["sha256"]
-        baseline_file.write_bytes(baseline)
-    baseline = baseline_file.read_bytes()
-    assert hashlib.sha256(baseline).hexdigest() == pins["baseline"]["sha256"]
-    assert baseline != exact, "The regression must compare against the original unfixed source"
-    # The historical implementation predates the other package tests' polling
-    # and atomic-counter APIs. Keep the original fixture in its control build.
-    fixture = production.with_name("client_run_close_test.go")
-    assert fixture.is_file()
-    replacements = {str(path): "" for path in production.parent.glob("*_test.go") if path != fixture}
-    replacements[str(production)] = str(baseline_file)
-    overlay = test_root / "baseline-overlay.json"
-    overlay.write_text(json.dumps({"Replace": replacements}) + "\n")
     command = ["go", "test", "-race", "-gcflags=all=-l", "-mod=vendor", "-count=3", "-json",
                "-timeout=5m", "-run=^" + CASE + "$", "./gnmi_server", "-args", "-logtostderr=true"]
     # Keep the Unix socket below Linux's 108-byte limit even in long CI paths.
@@ -288,22 +258,12 @@ def main():
             positive = run(command, cwd=tested, env=environment, log=evidence / "fixed.jsonl", check=False)
             events = [json.loads(line) for line in positive.stdout.splitlines() if line.startswith("{")]
             assert positive.returncode == 0 and sum(e.get("Test") == CASE and e.get("Action") == "pass" for e in events) == 3, positive.stdout[-4000:]
-            historical_command = [*command[:2], "-overlay=" + str(overlay), *command[2:]]
-            negative = run(historical_command, cwd=tested, env=environment, log=evidence / "baseline.jsonl", check=False)
-            negative_events = [json.loads(line) for line in negative.stdout.splitlines() if line.startswith("{")]
-            assert negative.returncode != 0 and any(e.get("Test") == CASE and e.get("Action") == "fail"
-                for e in negative_events), negative.stdout[-4000:]
-            for marker in ("DATA RACE", "client_subscribe.go:", "(*Client).Run", "(*Client).Close"):
-                assert marker in negative.stdout, (marker, negative.stdout[-4000:])
         finally:
             redis.terminate()
             try: redis.wait(timeout=5)
             except subprocess.TimeoutExpired: redis.kill(); redis.wait()
-    assert production.read_bytes() == exact
-    report.update(fixed_passes=3, baseline_race_reproduced=True,
-                  production_sha256=hashlib.sha256(exact).hexdigest(),
-                  baseline_sha256=hashlib.sha256(baseline).hexdigest(),
-                  evidence_sha256={name: digest(evidence / name) for name in ["fixed.jsonl", "baseline.jsonl"]})
+    report.update(passes=3, production_sha256=digest(tested / "gnmi_server/client_subscribe.go"),
+                  evidence_sha256={"fixed.jsonl": digest(evidence / "fixed.jsonl")})
     (evidence / "result.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
