@@ -59,8 +59,8 @@ registry plus BCR. Management Common `1.0.1-05f83dcab8fe2e1a0e0fc37ac172b289d696
 and the public goyang/ygot owners are available there. The separate consumer
 selects the same Management Common, SWSS Common and build-infra owners as the
 source root; no temporary registry selection is needed for these checks.
-The independent subscription-race reproduction uses landed owner sources and
-their maintained registry configuration while comparing the original baseline.
+The native subscription regression runs the upstream Go race-detector test three times on
+the reviewed source, using the same registry-selected owners as the Bazel packages.
 It is separate evidence from the source-root and installed-consumer checks.
 
 A consuming Bzlmod root supplies its Go SDK and the exported SONiC Go patches.
