@@ -28,8 +28,7 @@ digest, run, unpack = _native.digest, _native.run, _native.unpack
 ROOT = Path(__file__).resolve().parents[2]
 TAGS = "gnmi_translib_write,gnmi_native_write"
 MGMT_MODULE = "github.com/Azure/sonic-mgmt-common"
-LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
-                         "@libnl3//:libnl-nf-3_pkg"]
+LIBNL_RUNTIME_TARGETS = _native.LIBNL_RUNTIME_TARGETS
 TARGETS = ["@sonic_swss_common//dist:libswsscommon_sdk",
            "@sonic_swss_common//dist:libswsscommon_pkg",
            "@sonic_swss_common//goext:swsscommon_go_gen",

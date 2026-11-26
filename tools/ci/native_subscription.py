@@ -15,6 +15,8 @@ import time
 
 
 CASE = "TestClientCountersAreSafeDuringClose"
+LIBNL_RUNTIME_TARGETS = ["@libnl3//:libnl-3_pkg", "@libnl3//:libnl-route-3_pkg",
+                         "@libnl3//:libnl-nf-3_pkg"]
 
 
 def digest(path):
@@ -103,6 +105,7 @@ def main():
               "driver_sha256": digest(__file__)}
     run(["dpkg-query", "-W", "-f=${Package}\t${Version}\t${Architecture}\n"],
         cwd=work, log=evidence / "native-tools.txt")
+    common = owner(work, "sonic-swss-common", pins["owners"]["sonic-swss-common"])
     mgmt = owner(work, "sonic-mgmt-common", pins["owners"]["sonic-mgmt-common"])
     outputs = {}
 
@@ -121,7 +124,8 @@ def main():
             *shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
         return run(command, cwd=source, log=evidence / (source.name + "-" + operation + log_suffix + ".log")).stdout
 
-    common_targets = ["//dist:libswsscommon_sdk", "//dist:libswsscommon_pkg", "//:swig_template"]
+    common_targets = ["//dist:libswsscommon_sdk", "//dist:libswsscommon_pkg", "//:swig_template",
+                      *LIBNL_RUNTIME_TARGETS]
     mgmt_targets = ["//dist:codegen", "//dist:runtime", "@libyang//:libyang_pkg", "@libyang//:public_headers"]
     # Use the selected registry MODULEs, which carry the consumer's canonical
     # versions and overlays. A checkout of an owner's standalone workspace
@@ -171,6 +175,8 @@ def main():
     else:
         unpack(outputs["//dist:libswsscommon_sdk"][0], sdk)
         unpack(outputs["//dist:libswsscommon_pkg"][0], runtime)
+        for target in LIBNL_RUNTIME_TARGETS:
+            unpack(outputs[target][0], runtime)
         unpack(outputs["//dist:runtime"][0], runtime)
         unpack(outputs["@libyang//:libyang_pkg"][0], runtime)
         staged.write_text(json.dumps(report["owner_output_sha256"], sort_keys=True) + "\n")
@@ -188,7 +194,9 @@ def main():
     if not (libdir / "libyang.so").exists():
         (libdir / "libyang.so").symlink_to("libyang.so.3")
     template = tested / "swsscommon/swsscommon.i"
-    shutil.copyfile(outputs["//:swig_template"][0], template)
+    swig_template, = outputs["//:swig_template"]
+    assert digest(swig_template) == digest(common / "pyext/swsscommon.i")
+    shutil.copyfile(swig_template, template)
     run(["swig", "-go", "-cgo", "-c++", "-intgosize", "64", "-I" + str(sdk / "include/swss"),
          "swsscommon.i"], cwd=template.parent, log=evidence / "swig.log")
     # Preserve the native neighboring-checkout contract without changing go.mod.
@@ -233,6 +241,12 @@ def main():
         for patch in ["gnmi_path.patch", "gnmi_xpath.patch", "0002-Fix-advance-tls-build-with-go-119.patch", "0004-CloseWrite-event-support.patch"]:
             run(["patch", "-p0", "-i", str(tested / "patches" / patch)], cwd=vendor)
         (work / ("vendor-" + head + ".done")).write_text("complete\n")
+    for name in ("go.mod", "go.sum"):
+        shutil.copyfile(tested / name, evidence / name)
+    report["native_dependency_sha256"] = {name: digest(tested / name) for name in ("go.mod", "go.sum")}
+
+    bindings = Path("translib/ocbinds/ocbinds.go")
+    assert digest(vendor / "github.com/Azure/sonic-mgmt-common" / bindings) == digest(native_mgmt / bindings)
     for name in ("go.mod", "go.sum"):
         shutil.copyfile(tested / name, evidence / name)
     report["native_dependency_sha256"] = {name: digest(tested / name) for name in ("go.mod", "go.sum")}
