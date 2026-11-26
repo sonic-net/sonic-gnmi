@@ -1,0 +1,48 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "oras",
+    srcs = [
+        "json.go",
+        "oras.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/gnoi/oras",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/hostfs",
+        "//proto/gnoi/oras",
+        "@com_github_golang_glog//:glog",
+        "@com_github_opencontainers_image_spec//specs-go/v1:specs-go",
+        "@land_oras_oras_go_v2//content/file",
+        "@land_oras_oras_go_v2//errdef",
+        "@land_oras_oras_go_v2//registry/remote",
+        "@land_oras_oras_go_v2//registry/remote/auth",
+        "@land_oras_oras_go_v2//registry/remote/errcode",
+        "@land_oras_oras_go_v2//registry/remote/retry",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//types/known/durationpb",
+    ],
+)
+
+native_go_test(
+    name = "oras_test",
+    srcs = ["oras_test.go"],
+    embed = [":oras"],
+    deps = [
+        "//proto/gnoi/oras",
+        "@com_github_opencontainers_go_digest//:go-digest",
+        "@com_github_opencontainers_image_spec//specs-go/v1:specs-go",
+        "@land_oras_oras_go_v2//errdef",
+        "@land_oras_oras_go_v2//registry/remote",
+        "@land_oras_oras_go_v2//registry/remote/auth",
+        "@land_oras_oras_go_v2//registry/remote/errcode",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+source_files()

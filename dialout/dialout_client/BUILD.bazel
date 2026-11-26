@@ -1,0 +1,43 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "dialout_client",
+    srcs = ["dialout_client.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/dialout/dialout_client",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/redisopts",
+        "//proto",
+        "//sonic_data_client",
+        "//sonic_db_config",
+        "@com_github_golang_glog//:glog",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_ygot//ygot",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@com_github_workiva_go_datastructures//queue",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+    ],
+)
+
+native_go_test(
+    name = "dialout_client_test",
+    srcs = ["dialout_client_test.go"],
+    embed = [":dialout_client"],
+    deps = [
+        "//dialout/dialout_server",
+        "//sonic_data_client",
+        "//sonic_db_config",
+        "//testdata/tls",
+        "@com_github_openconfig_gnmi//client/gnmi",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnmi//value",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//credentials",
+    ],
+)
+
+source_files()

@@ -1,0 +1,5 @@
+load("//tools/bazel:source_files.bzl", "source_files")
+
+exports_files(glob(["*.patch"]))
+
+source_files()

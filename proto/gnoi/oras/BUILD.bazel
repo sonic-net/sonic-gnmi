@@ -1,0 +1,47 @@
+# gazelle:ignore
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "oras",
+    embed = [":oras_go_proto"],
+    importpath = "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_openconfig_gnoi//types",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+        "@org_golang_google_protobuf//types/known/durationpb",
+    ],
+)
+
+proto_library(
+    name = "oras_proto",
+    srcs = ["oras.proto"],
+    deps = [
+        "@com_github_openconfig_gnoi//types:types_proto",
+        "@com_google_protobuf//:duration_proto",
+    ],
+)
+
+go_proto_library(
+    name = "oras_go_proto",
+    compilers = ["@io_bazel_rules_go//proto:go_grpc"],
+    importpath = "github.com/sonic-net/sonic-gnmi/proto/gnoi/oras",
+    proto = ":oras_proto",
+    deps = ["@com_github_openconfig_gnoi//types"],
+)
+
+source_files()
+
+filegroup(
+    name = "generated_proto_source",
+    srcs = [":oras_go_proto"],
+    output_group = "go_generated_srcs",
+    visibility = ["//visibility:public"],
+)

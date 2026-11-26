@@ -2589,7 +2589,7 @@ func TestPollCountersDBVirtualPathKeyDeleted(t *testing.T) {
 	rclient := getRedisClientN(t, 2, ns)
 	defer rclient.Close()
 
-	fileName := "../testdata/COUNTERS:Ethernet68.txt"
+	fileName := "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2837,7 +2837,7 @@ func TestPollCountersDBWildcardEthernetMissingThenPartialAdded(t *testing.T) {
 	rclient.Del(context.Background(), "COUNTERS:oid:0x1500000000092a")
 	rclient.Del(context.Background(), "COUNTERS:oid:0x1500000000091c")
 
-	fileName := "../testdata/COUNTERS:Ethernet68.txt"
+	fileName := "../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -2950,7 +2950,7 @@ func TestPollInterfaceCountersVPath(t *testing.T) {
 	ns, _ := sdcfg.GetDbDefaultNamespace()
 	prepareDb(t, ns)
 
-	fileName := "../testdata/COUNTERS:Ethernet_wildcard_expected.txt"
+	fileName := "../testdata/COUNTERS_Ethernet_wildcard_expected.txt"
 	interfaceCountersExpectedByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)

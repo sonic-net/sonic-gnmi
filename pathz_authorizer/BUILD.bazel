@@ -1,0 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "pathz_authorizer",
+    srcs = ["pathz_authorizer.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/pathz_authorizer",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_golang_glog//:glog",
+        "@com_github_golang_protobuf//proto",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnsi//pathz",
+    ],
+)
+
+native_go_test(
+    name = "pathz_authorizer_test",
+    srcs = ["pathz_authorizer_test.go"],
+    embed = [":pathz_authorizer"],
+    deps = [
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_openconfig_gnsi//pathz",
+    ],
+)
+
+source_files()

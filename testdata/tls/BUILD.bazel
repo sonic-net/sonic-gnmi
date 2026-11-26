@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "tls",
+    srcs = ["tls.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/testdata/tls",
+    visibility = ["//visibility:public"],
+)
+
+native_go_test(
+    name = "tls_test",
+    srcs = ["tls_test.go"],
+    embed = [":tls"],
+)
+
+source_files()

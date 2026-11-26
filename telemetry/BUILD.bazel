@@ -1,0 +1,6 @@
+# Keep the original public command label for downstream image consumers.
+alias(
+    name = "telemetry",
+    actual = "//cmd/telemetry:telemetry",
+    visibility = ["//visibility:public"],
+)

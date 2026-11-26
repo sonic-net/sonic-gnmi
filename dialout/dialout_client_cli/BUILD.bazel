@@ -1,0 +1,22 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "dialout_client_cli_lib",
+    srcs = ["dialout_client_cli.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/dialout/dialout_client_cli",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//dialout/dialout_client",
+        "@com_github_golang_glog//:glog",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+    ],
+)
+
+go_binary(
+    name = "dialout_client_cli",
+    embed = [":dialout_client_cli_lib"],
+    visibility = ["//visibility:public"],
+)
+
+source_files()

@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "hostfs",
+    srcs = ["hostfs.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/hostfs",
+    visibility = ["//visibility:public"],
+)
+
+native_go_test(
+    name = "hostfs_test",
+    srcs = ["hostfs_test.go"],
+    embed = [":hostfs"],
+)
+
+source_files()

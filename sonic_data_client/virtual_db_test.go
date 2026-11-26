@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sonic-net/sonic-gnmi/test_utils"
 	"os"
 	"sort"
 	"strings"
@@ -835,7 +836,7 @@ func TestResolveVoQNamespace_FoundInMap(t *testing.T) {
 	}
 
 	activeNs := map[string]*redis.Client{
-		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+		"asic0": redis.NewClient(&redis.Options{Addr: test_utils.TestRedisAddress()}),
 	}
 
 	ns, ok := resolveVoQNamespace("oid:0x123", activeNs)
@@ -857,7 +858,7 @@ func TestResolveVoQNamespace_StaleNamespace(t *testing.T) {
 
 	// activeNamespaces does NOT contain asic2
 	activeNs := map[string]*redis.Client{
-		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+		"asic0": redis.NewClient(&redis.Options{Addr: test_utils.TestRedisAddress()}),
 	}
 
 	// Owning namespace is no longer active: do not guess, report ok=false.
@@ -874,7 +875,7 @@ func TestResolveVoQNamespace_NotInMap(t *testing.T) {
 	countersVoQOidNamespaceMap = map[string]string{}
 
 	activeNs := map[string]*redis.Client{
-		"asic0": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+		"asic0": redis.NewClient(&redis.Options{Addr: test_utils.TestRedisAddress()}),
 	}
 
 	// Unknown owner: do not guess, report ok=false.
@@ -911,7 +912,7 @@ func setupVoQMaps(t *testing.T) func() {
 	// Set up a minimal Target2RedisDb so GetRedisClientsForDb returns a client
 	Target2RedisDb = map[string]map[string]*redis.Client{
 		"": {
-			"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+			"COUNTERS_DB": redis.NewClient(&redis.Options{Addr: test_utils.TestRedisAddress()}),
 		},
 	}
 

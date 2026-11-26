@@ -1,0 +1,12 @@
+load("//tools/bazel:source_files.bzl", "source_files")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files(["protobuf.py"])
+
+filegroup(
+    name = "templates",
+    srcs = glob(["templates/**/*.j2"]),
+)
+
+source_files()

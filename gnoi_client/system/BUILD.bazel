@@ -1,0 +1,39 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "system",
+    srcs = [
+        "kill_process.go",
+        "reboot.go",
+        "set_package.go",
+        "time.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnoi_client/system",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gnoi_client/config",
+        "//gnoi_client/utils",
+        "@com_github_openconfig_gnoi//common",
+        "@com_github_openconfig_gnoi//system",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+native_go_test(
+    name = "system_test",
+    srcs = [
+        "system_mock_test.go",
+        "system_test.go",
+    ],
+    embed = [":system"],
+    deps = [
+        "@com_github_golang_mock//gomock",
+        "@com_github_openconfig_gnoi//system",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//metadata",
+    ],
+)
+
+source_files()

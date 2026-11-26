@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "hash",
+    srcs = ["hash.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/hash",
+    visibility = ["//:__subpackages__"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":hash",
+    visibility = ["//:__subpackages__"],
+)
+
+native_go_test(
+    name = "hash_test",
+    srcs = ["hash_test.go"],
+    embed = [":hash"],
+)
+
+source_files()

@@ -959,7 +959,8 @@ func TestHandlePut_LargeFile(t *testing.T) {
 }
 
 func TestHandlePut_VarTmpPath(t *testing.T) {
-	// Test /var/tmp path is allowed
+	// Keep the real /var/tmp logical path, using the existing private host root.
+	useTempHostRoot(t)
 	stream := newMockPutStream()
 
 	content := []byte("var tmp test")
@@ -976,11 +977,8 @@ func TestHandlePut_VarTmpPath(t *testing.T) {
 		t.Fatalf("HandlePut() error = %v", err)
 	}
 
-	// Verify file was created
-	path := "/var/tmp/test.txt"
-	if _, err := os.Stat("/mnt/host"); err == nil {
-		path = "/mnt/host/var/tmp/test.txt"
-	}
+	// Verify that HandlePut wrote through the real host-path translation.
+	path := filepath.Join(hostRoot, "var/tmp/test.txt")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("File was not created in /var/tmp")

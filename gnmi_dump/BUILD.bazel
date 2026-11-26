@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "gnmi_dump_lib",
+    srcs = ["gnmi_dump.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnmi_dump",
+    visibility = ["//visibility:private"],
+    deps = ["//common_utils"],
+)
+
+go_binary(
+    name = "gnmi_dump",
+    embed = [":gnmi_dump_lib"],
+    visibility = ["//visibility:public"],
+)
+
+source_files()

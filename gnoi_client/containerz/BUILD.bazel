@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "containerz",
+    srcs = ["deploy.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnoi_client/containerz",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gnoi_client/config",
+        "//gnoi_client/utils",
+        "@com_github_openconfig_gnoi//common",
+        "@com_github_openconfig_gnoi//containerz",
+        "@com_github_openconfig_gnoi//types",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+source_files()

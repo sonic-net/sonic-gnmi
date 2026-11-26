@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "sonic",
+    srcs = [
+        "jwt.go",
+        "sonic.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnoi_client/sonic",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gnoi_client/config",
+        "//gnoi_client/utils",
+        "//proto/gnoi",
+        "//proto/gnoi/jwt",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+source_files()
