@@ -2617,8 +2617,8 @@ git.sr.ht/~sbinet/gg v0.3.1/go.mod h1:KGYtlADtqsqANL9ueOFkWymvzUvLMQllU5Ixo+8v3p
 git.sr.ht/~sbinet/gg v0.5.0/go.mod h1:G2C0eRESqlKhS7ErsNey6HHrqU1PwsnCQlekFi9Q2Oo=
 git.sr.ht/~sbinet/gg v0.6.0/go.mod h1:uucygbfC9wVPQIfrmwM2et0imr8L7KQWywX0xpFMm94=
 git.wow.st/gmp/jni v0.0.0-20210610011705-34026c7e22d0/go.mod h1:+axXBRUTIDlCeE73IKeD/os7LoEnTKdkp8/gQOFjqyo=
-github.com/Azure/sonic-mgmt-common v0.0.0-20261106021544-c49a9496f49b h1:Nc38lEZ7H0ZmWCYJngtz4aQzPOXO9qPMTxFf1xnA5EE=
-github.com/Azure/sonic-mgmt-common v0.0.0-20261106021544-c49a9496f49b/go.mod h1:cUQ/safTUhTo5+XSpxjIvCA1lIiY/29YzAe6SHEPHaM=
+github.com/Azure/sonic-mgmt-common v0.0.0-20261118214341-151344241c54 h1:n/9G5J9G62d/dvRc+k9eJQoEv9zauCofm09p7x85dsU=
+github.com/Azure/sonic-mgmt-common v0.0.0-20261118214341-151344241c54/go.mod h1:PI83z3a2rxdICBKmiS1oHI5dfmzlC0RRTEPMp4OhaQA=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/GoogleCloudPlatform/grpc-gcp-go/grpcgcp v1.5.0/go.mod h1:dppbR7CwXD4pgtV9t3wD1812RaLDcBjtblcDF5f1vI0=
