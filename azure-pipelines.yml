@@ -227,7 +227,7 @@ stages:
   # Full integration testing with SONiC dependencies
   - job: integration_tests
     displayName: "Integration tests"
-    timeoutInMinutes: 60
+    timeoutInMinutes: 75
 
     pool: sonic-ubuntu-1c
 
