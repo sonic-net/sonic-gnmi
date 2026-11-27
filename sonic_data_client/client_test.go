@@ -34,6 +34,22 @@ var testFile = func() string {
 	return filepath.Join(root, "ut.cp.json")
 }()
 
+func TestMixedDbWorkPath(t *testing.T) {
+	t.Run("uses TMPDIR when set", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("TMPDIR", dir)
+		if got := mixedDbWorkPath(); got != dir {
+			t.Errorf("work directory = %q, want %q", got, dir)
+		}
+	})
+	t.Run("defaults to /tmp when TMPDIR is empty", func(t *testing.T) {
+		t.Setenv("TMPDIR", "")
+		if got := mixedDbWorkPath(); got != "/tmp" {
+			t.Errorf("work directory = %q, want /tmp", got)
+		}
+	})
+}
+
 type readBatchHook struct{ sizes []int }
 
 func (h *readBatchHook) DialHook(next redis.DialHook) redis.DialHook          { return next }
