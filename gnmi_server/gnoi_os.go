@@ -5,6 +5,7 @@ import (
 	"fmt"
 	log "github.com/golang/glog"
 	ospb "github.com/openconfig/gnoi/os"
+	syspb "github.com/openconfig/gnoi/system"
 	gnoios "github.com/sonic-net/sonic-gnmi/pkg/gnoi/os"
 	ssc "github.com/sonic-net/sonic-gnmi/sonic_service_client"
 	"google.golang.org/grpc/codes"
@@ -435,8 +436,40 @@ func (srv *OSServer) Activate(ctx context.Context, req *ospb.ActivateRequest) (*
 	}
 
 	log.Infof("Successfully activated image %s", image)
+
+	if !req.GetNoReboot() && srv.isRunningImage(ctx, image) {
+		log.Infof("Image %s is already running, not rebooting", image)
+	} else if !req.GetNoReboot() {
+		log.Infof("Rebooting to boot activated image %s", image)
+		rebootReq := &syspb.RebootRequest{
+			Method:  syspb.RebootMethod_COLD,
+			Message: fmt.Sprintf("gNOI OS.Activate %s", image),
+		}
+		if _, err := srv.Reboot(ctx, rebootReq); err != nil {
+			log.Errorf("Failed to reboot after activating image %s: %v", image, err)
+			resp.Response = &ospb.ActivateResponse_ActivateError{
+				ActivateError: &ospb.ActivateError{
+					Type:   ospb.ActivateError_UNSPECIFIED,
+					Detail: fmt.Sprintf("Image %s activated but reboot failed: %v", image, err),
+				},
+			}
+			return &resp, nil
+		}
+	}
+
 	resp.Response = &ospb.ActivateResponse_ActivateOk{}
 	return &resp, nil
+}
+
+// isRunningImage reports whether image is the running OS. If the running
+// image cannot be read it reports false, so Activate still reboots.
+func (srv *OSServer) isRunningImage(ctx context.Context, image string) bool {
+	current, err := handleOSVerify(ctx, &ospb.VerifyRequest{})
+	if err != nil {
+		log.Warningf("Unable to read the running image: %v", err)
+		return false
+	}
+	return current.GetVersion() == image
 }
 
 func (srv *OSServer) Verify(ctx context.Context, req *ospb.VerifyRequest) (*ospb.VerifyResponse, error) {

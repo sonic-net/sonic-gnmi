@@ -4826,9 +4826,15 @@ func TestGNOI(t *testing.T) {
 		})
 		defer mock.Reset()
 
+		rebootMock := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "Reboot", func(_ *Server, _ context.Context, _ *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+			t.Errorf("Reboot should not be called when no_reboot is set")
+			return &gnoi_system_pb.RebootResponse{}, nil
+		})
+		defer rebootMock.Reset()
+
 		// Prepare context and request
 		ctx := context.Background()
-		req := &gnoi_os_pb.ActivateRequest{Version: input_image}
+		req := &gnoi_os_pb.ActivateRequest{Version: input_image, NoReboot: true}
 		osc := gnoi_os_pb.NewOSClient(conn)
 
 		resp, err := osc.Activate(ctx, req)
@@ -4838,6 +4844,99 @@ func TestGNOI(t *testing.T) {
 		// Validate the response
 		if resp == nil {
 			t.Fatalf("Expected a non-nil response")
+		}
+		if resp.GetActivateOk() == nil {
+			t.Fatalf("Expected ActivateOk but got: %v", resp)
+		}
+	})
+
+	runningImage := func(version string) func() {
+		original := handleOSVerify
+		handleOSVerify = func(context.Context, *gnoi_os_pb.VerifyRequest) (*gnoi_os_pb.VerifyResponse, error) {
+			return &gnoi_os_pb.VerifyResponse{Version: version}, nil
+		}
+		return func() { handleOSVerify = original }
+	}
+
+	t.Run("OSActivateReboots", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		input_image := "next_image"
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			return nil
+		})
+		defer mock.Reset()
+		defer runningImage("current_image")()
+		var rebootReq *gnoi_system_pb.RebootRequest
+		rebootMock := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "Reboot", func(_ *Server, _ context.Context, req *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+			rebootReq = req
+			return &gnoi_system_pb.RebootResponse{}, nil
+		})
+		defer rebootMock.Reset()
+
+		osc := gnoi_os_pb.NewOSClient(conn)
+		resp, err := osc.Activate(context.Background(), &gnoi_os_pb.ActivateRequest{Version: input_image})
+		if err != nil {
+			t.Fatalf("OS Activate failed: %v", err)
+		}
+		if resp.GetActivateOk() == nil {
+			t.Fatalf("Expected ActivateOk but got: %v", resp)
+		}
+		if rebootReq == nil {
+			t.Fatalf("Expected Activate to reboot when no_reboot is not set")
+		}
+		if rebootReq.GetMethod() != gnoi_system_pb.RebootMethod_COLD {
+			t.Errorf("Expected COLD reboot but got %v", rebootReq.GetMethod())
+		}
+	})
+
+	t.Run("OSActivateRunningImage", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			return nil
+		})
+		defer mock.Reset()
+		defer runningImage("current_image")()
+		rebootMock := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "Reboot", func(_ *Server, _ context.Context, _ *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+			t.Errorf("Reboot should not be called when the image is already running")
+			return &gnoi_system_pb.RebootResponse{}, nil
+		})
+		defer rebootMock.Reset()
+
+		osc := gnoi_os_pb.NewOSClient(conn)
+		resp, err := osc.Activate(context.Background(), &gnoi_os_pb.ActivateRequest{Version: "current_image"})
+		if err != nil {
+			t.Fatalf("OS Activate failed: %v", err)
+		}
+		if resp.GetActivateOk() == nil {
+			t.Fatalf("Expected ActivateOk but got: %v", resp)
+		}
+	})
+
+	t.Run("OSActivateRebootFails", func(t *testing.T) {
+		mockClient := &ssc.DbusClient{}
+		mock := gomonkey.ApplyMethod(reflect.TypeOf(mockClient), "ActivateImage", func(_ *ssc.DbusClient, image string) error {
+			return nil
+		})
+		defer mock.Reset()
+		defer runningImage("current_image")()
+		rebootMock := gomonkey.ApplyMethod(reflect.TypeOf(&Server{}), "Reboot", func(_ *Server, _ context.Context, _ *gnoi_system_pb.RebootRequest) (*gnoi_system_pb.RebootResponse, error) {
+			return nil, status.Errorf(codes.Internal, "Response Notification timeout from Reboot Backend!")
+		})
+		defer rebootMock.Reset()
+
+		osc := gnoi_os_pb.NewOSClient(conn)
+		resp, err := osc.Activate(context.Background(), &gnoi_os_pb.ActivateRequest{Version: "next_image"})
+		if err != nil {
+			t.Fatalf("Expected no error but got: %v", err)
+		}
+		if resp.GetActivateError() == nil {
+			t.Fatalf("Expected ActivateError in response but got: %v", resp)
+		}
+		if resp.GetActivateError().GetType() != gnoi_os_pb.ActivateError_UNSPECIFIED {
+			t.Errorf("Expected error type UNSPECIFIED but got %v", resp.GetActivateError().GetType())
+		}
+		if !strings.Contains(resp.GetActivateError().GetDetail(), "reboot failed") {
+			t.Errorf("Expected detail to mention the reboot failure but got %q", resp.GetActivateError().GetDetail())
 		}
 	})
 
