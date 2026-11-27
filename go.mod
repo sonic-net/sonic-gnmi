@@ -3,7 +3,7 @@ module github.com/sonic-net/sonic-gnmi
 go 1.26.0
 
 require (
-	github.com/Azure/sonic-mgmt-common v0.0.0-20261106021544-c49a9496f49b
+	github.com/Azure/sonic-mgmt-common v0.0.0-20261118214341-151344241c54
 	github.com/Workiva/go-datastructures v1.1.8
 	github.com/agiledragon/gomonkey/v2 v2.14.4
 	github.com/alicebob/miniredis/v2 v2.40.0
