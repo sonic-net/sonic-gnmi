@@ -16,10 +16,8 @@ import (
 	"time"
 )
 
-// ClientKey is the key used in the server's client map for duplicate detection.
-// When EnableStreamMultiplexing is true, each stream gets a unique StreamID
-// so multiple streams from the same peer coexist. When false, StreamID is 0
-// and the peer address alone identifies the client (legacy behavior).
+// ClientKey is the key used in the server's client map. StreamID is unique per
+// Subscribe RPC, so multiple streams from the same peer connection coexist.
 type ClientKey struct {
 	PeerAddr string
 	StreamID uint64
@@ -27,21 +25,20 @@ type ClientKey struct {
 
 // Client contains information about a subscribe client that has connected to the server.
 type Client struct {
-	addr                     net.Addr
-	id                       uint64 // Unique ID for this client instance
-	enableStreamMultiplexing bool   // When true, include unique stream ID in Key() for multiplexing
-	sendMsg                  atomic.Int64
-	recvMsg                  atomic.Int64
-	errors                   atomic.Int64
-	polled                   chan struct{}
-	pollStop                 chan struct{}
-	pollSenders              sync.WaitGroup
-	stop                     chan struct{}
-	once                     chan struct{}
-	mu                       sync.RWMutex
-	closed                   bool
-	q                        *queue.PriorityQueue
-	subscribe                *gnmipb.SubscriptionList
+	addr        net.Addr
+	id          uint64 // Unique ID for this client instance
+	sendMsg     atomic.Int64
+	recvMsg     atomic.Int64
+	errors      atomic.Int64
+	polled      chan struct{}
+	pollStop    chan struct{}
+	pollSenders sync.WaitGroup
+	stop        chan struct{}
+	once        chan struct{}
+	mu          sync.RWMutex
+	closed      bool
+	q           *queue.PriorityQueue
+	subscribe   *gnmipb.SubscriptionList
 	// Wait for all sub go routine to finish
 	w        sync.WaitGroup
 	fatal    bool
@@ -93,14 +90,8 @@ func (c *Client) setConnectionManager(threshold int) {
 }
 
 // Key returns the client's key for use in the server's client map.
-// When EnableStreamMultiplexing is true, each stream has a unique StreamID.
-// When false, StreamID is 0 so all streams from the same peer share the same key (legacy behavior).
 func (c *Client) Key() ClientKey {
-	var streamID uint64
-	if c.enableStreamMultiplexing {
-		streamID = c.id
-	}
-	return ClientKey{PeerAddr: c.addr.String(), StreamID: streamID}
+	return ClientKey{PeerAddr: c.addr.String(), StreamID: c.id}
 }
 
 // String returns a human-readable description of the client for logging.

@@ -1529,6 +1529,45 @@ func TestNoTLSRequiresLoopbackAddress(t *testing.T) {
 	}
 }
 
+func TestMaxConcurrentStreamsFlag(t *testing.T) {
+	originalArgs := os.Args
+	defer func() { os.Args = originalArgs }()
+
+	base := []string{"cmd", "-port", "8080", "-noTLS", "-bind_address", "127.0.0.1"}
+	tests := []struct {
+		name    string
+		extra   []string
+		wantErr bool
+		want    int
+	}{
+		{"default", nil, false, 8},
+		{"custom", []string{"-max_concurrent_streams", "32"}, false, 32},
+		{"single stream", []string{"-max_concurrent_streams", "1"}, false, 1},
+		{"unlimited", []string{"-max_concurrent_streams", "0"}, false, 0},
+		{"negative", []string{"-max_concurrent_streams", "-1"}, true, 0},
+		{"above uint32", []string{"-max_concurrent_streams", "4294967296"}, true, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("test", flag.ContinueOnError)
+			os.Args = append(append([]string{}, base...), tt.extra...)
+			telemetryCfg, _, err := setupFlags(fs)
+			if tt.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "max_concurrent_streams") {
+					t.Fatalf("expected max_concurrent_streams error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if *telemetryCfg.MaxConcurrentStreams != tt.want {
+				t.Errorf("MaxConcurrentStreams = %d, want %d", *telemetryCfg.MaxConcurrentStreams, tt.want)
+			}
+		})
+	}
+}
+
 func TestMain(m *testing.M) {
 	defer test_utils.MemLeakCheck()
 	m.Run()
