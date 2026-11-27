@@ -16,7 +16,7 @@ require (
 	github.com/golang/glog v1.2.5
 	github.com/golang/mock v1.7.0-rc.1 // no stable v1.7.0; forced by cloud.google.com/go/spanner transitive dep
 	github.com/golang/protobuf v1.5.4
-	github.com/google/gnxi v0.0.0-20181220173256-89f51f0ce1e2
+	github.com/google/gnxi v0.0.0-20260825184829-4d4f71267f7c
 	github.com/google/go-cmp v0.7.0
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/kylelemons/godebug v1.1.0
@@ -25,7 +25,7 @@ require (
 	github.com/openconfig/gnmi v0.14.1
 	github.com/openconfig/gnoi v0.4.1
 	github.com/openconfig/gnsi v1.9.1
-	github.com/openconfig/ygot v0.7.1
+	github.com/openconfig/ygot v0.20.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/pkg/sftp v1.13.12
@@ -61,7 +61,7 @@ require (
 	github.com/go-redis/redis/v7 v7.4.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/kr/fs v0.1.0 // indirect
-	github.com/openconfig/goyang v0.0.0-20200309174518-a00bece872fc // indirect
+	github.com/openconfig/goyang v1.0.0 // indirect
 	github.com/philopon/go-toposort v0.0.0-20170620085441-9be86dbd762f // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
