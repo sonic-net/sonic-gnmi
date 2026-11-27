@@ -4537,9 +4537,7 @@ func runTestSubscribe(t *testing.T, namespace string) {
 	sdc.NeedMock = true
 	rclient := getRedisClient(t, namespace)
 	defer rclient.Close()
-	var wg sync.WaitGroup
 	for _, tt := range tests {
-		wg.Add(1)
 		prepareDb(t, namespace)
 		// Extra db preparation for this test case
 		for _, prepare := range tt.prepares {
@@ -4564,7 +4562,13 @@ func runTestSubscribe(t *testing.T, namespace string) {
 			q := tt.q
 			q.Addrs = []string{"127.0.0.1:8081"}
 			c := client.New()
-			defer c.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			var subscribeWG sync.WaitGroup
+			defer func() {
+				cancel()
+				c.Close()
+				subscribeWG.Wait()
+			}()
 			var gotNoti []client.Notification
 			var mutexGotNoti sync.Mutex
 			q.NotificationHandler = func(n client.Notification) error {
@@ -4578,27 +4582,23 @@ func runTestSubscribe(t *testing.T, namespace string) {
 				mutexGotNoti.Unlock()
 				return nil
 			}
-			go func(t2 TestExec) {
-				defer wg.Done()
-				err := c.Subscribe(context.Background(), q)
-				if t2.wantSubErr != nil && t2.wantSubErr.Error() != err.Error() {
-					t.Errorf("c.Subscribe expected %v, got %v", t2.wantSubErr, err)
+			if q.Type == client.Poll {
+				// Subscribe reads the initial snapshot through Sync. Poll reads
+				// from the same stream and must start after Subscribe returns.
+				if err := c.Subscribe(ctx, q); err != nil {
+					t.Fatalf("initial POLL subscription failed: %v", err)
 				}
-				/*
-					err := c.Subscribe(context.Background(), q)
-					t.Log("c.Subscribe err:", err)
-					switch {
-					case tt.wantErr && err != nil:
-						return
-					case tt.wantErr && err == nil:
-						t.Fatalf("c.Subscribe(): got nil error, expected non-nil")
-					case !tt.wantErr && err != nil:
-						t.Fatalf("c.Subscribe(): got error %v, expected nil", err)
+			} else {
+				subscribeWG.Add(1)
+				go func() {
+					defer subscribeWG.Done()
+					err := c.Subscribe(ctx, q)
+					if tt.wantSubErr != nil && (err == nil || err.Error() != tt.wantSubErr.Error()) {
+						t.Errorf("c.Subscribe expected %v, got %v", tt.wantSubErr, err)
 					}
-				*/
-			}(tt)
-			// wait for half second for subscribeRequest to sync
-			time.Sleep(time.Millisecond * 500)
+				}()
+				time.Sleep(time.Millisecond * 500)
+			}
 			for _, update := range tt.updates {
 				switch update.op {
 				case "hdel":
@@ -4644,7 +4644,6 @@ func runTestSubscribe(t *testing.T, namespace string) {
 		}
 	}
 	sdc.NeedMock = false
-	wg.Wait()
 }
 
 func TestGnmiSubscribe(t *testing.T) {
