@@ -42,7 +42,7 @@ def owner(work, name, pin):
     archive = work / (name + "-" + pin["revision"] + ".tar.gz")
     if not archive.exists():
         temporary = archive.with_suffix(".download")
-        url = f"https://github.com/securely1g/{name}/archive/{pin['revision']}.tar.gz"
+        url = f"https://github.com/sonic-net/{name}/archive/{pin['revision']}.tar.gz"
         subprocess.run(["curl", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
                         "--silent", "--show-error", "--output", str(temporary), url], check=True)
         if digest(temporary) != pin["sha256"]:
@@ -121,15 +121,16 @@ def main():
             "--nosystem_rc", "--nohome_rc", "--noworkspace_rc", "--bazelrc=" + str(rc),
             "--output_base=" + str(work / (source.name + "-output")), operation,
             "--jobs=2", "--host_platform=@sonic_build_infra//platforms:x86_64_trixie",
+            f"--override_module=sonic-swss-common={common}",
+            f"--override_module=sonic-mgmt-common={mgmt}",
             *shlex.split(os.environ.get("NATIVE_BAZEL_FLAGS", "")), *targets, *extra]
         return run(command, cwd=source, log=evidence / (source.name + "-" + operation + log_suffix + ".log")).stdout
 
     common_targets = ["//dist:libswsscommon_sdk", "//dist:libswsscommon_pkg", "//:swig_template",
                       *LIBNL_RUNTIME_TARGETS]
     mgmt_targets = ["//dist:codegen", "//dist:runtime", "@libyang//:libyang_pkg", "@libyang//:public_headers"]
-    # Use the selected registry MODULEs, which carry the consumer's canonical
-    # versions and overlays. A checkout of an owner's standalone workspace
-    # may declare a different set of package versions.
+    # The SDK, SWIG template and generated Go code must match the source
+    # checkouts used by the native compiler below.
     for repo, targets in [("@sonic_swss_common", common_targets), ("@sonic_mgmt_common", mgmt_targets)]:
         labels = {target: repo + target if target.startswith("//") else target for target in targets}
         bazel("build", list(labels.values()), log_suffix=repo)

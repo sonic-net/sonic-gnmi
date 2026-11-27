@@ -56,9 +56,10 @@ intentionally omitted for gNMI's existing glog1.2.4 selection.
 
 The source build, CodeQL and the separate consumer resolve the owner versions
 in `MODULE.bazel` through the sonic-net registry and BCR. The native subscription
-test builds SWSS Common and its three netlink libraries from the same graph.
-It builds Management Common from the pinned source commit, so that test can run
-before the commit is published as a module.
+test downloads the two `sonic-net` revisions in
+[`native_subscription_inputs.json`](tools/ci/native_subscription_inputs.json)
+and verifies their archive checksums. It builds the SWSS SDK, runtime and SWIG
+template and the Management Common generated Go code from those same checkouts.
 
 A consuming Bzlmod root supplies its Go SDK and the exported SONiC Go patches.
 `tests/consumer` is a real separate module: it imports gNMI's public server and
