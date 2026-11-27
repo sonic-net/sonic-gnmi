@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,7 @@ func TestFileProductionServiceUDS(t *testing.T) {
 
 func verifyFileService(t *testing.T, client filepb.FileClient) {
 	t.Helper()
+	const maxChunkSize = 64 * 1024
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	// Public read access checks every ancestor. Use a public temp directory
@@ -95,14 +97,22 @@ func verifyFileService(t *testing.T, client filepb.FileClient) {
 		if err != nil {
 			return err
 		}
-		for _, req := range []*filepb.PutRequest{
-			{Request: &filepb.PutRequest_Open{Open: &filepb.PutRequest_Details{RemoteFile: path, Permissions: 0644}}},
-			{Request: &filepb.PutRequest_Contents{Contents: data}},
-			{Request: &filepb.PutRequest_Hash{Hash: &types.HashType{Method: types.HashType_MD5, Hash: hash}}},
-		} {
-			if err := stream.Send(req); err != nil {
+		if err := stream.Send(&filepb.PutRequest{
+			Request: &filepb.PutRequest_Open{Open: &filepb.PutRequest_Details{RemoteFile: path, Permissions: 0644}},
+		}); err != nil {
+			return err
+		}
+		for chunk := range slices.Chunk(data, maxChunkSize) {
+			if err := stream.Send(&filepb.PutRequest{
+				Request: &filepb.PutRequest_Contents{Contents: chunk},
+			}); err != nil {
 				return err
 			}
+		}
+		if err := stream.Send(&filepb.PutRequest{
+			Request: &filepb.PutRequest_Hash{Hash: &types.HashType{Method: types.HashType_MD5, Hash: hash}},
+		}); err != nil {
+			return err
 		}
 		_, err = stream.CloseAndRecv()
 		return err
@@ -137,7 +147,7 @@ func verifyFileService(t *testing.T, client filepb.FileClient) {
 			t.Fatal("response received after final hash")
 		}
 		if chunk := response.GetContents(); chunk != nil {
-			if len(chunk) > 64*1024 {
+			if len(chunk) > maxChunkSize {
 				t.Fatalf("oversized chunk: %d", len(chunk))
 			}
 			downloaded = append(downloaded, chunk...)
