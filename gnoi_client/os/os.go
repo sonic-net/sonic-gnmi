@@ -120,66 +120,92 @@ waitLoop:
 		}
 	}
 
-	// Step 3: Send transfer_content chunks from the image file
-	// Open the input file
+	// Step 3: Concurrently drain InstallResponses while streaming content.
+	//
+	// The target sends TransferProgress messages as it writes the image. If the
+	// client only sends and never receives, the HTTP/2 flow-control windows fill
+	// in both directions and the transfer deadlocks (the target blocks writing
+	// progress, so it stops reading content, so the client blocks sending). We
+	// therefore read responses in a dedicated goroutine for the whole transfer.
+	recvDone := make(chan error, 1)
+	go func() {
+		for {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				recvDone <- nil
+				return
+			}
+			if err != nil {
+				recvDone <- fmt.Errorf("error receiving InstallResponse: %v", err)
+				return
+			}
+			switch r := resp.Response.(type) {
+			case *pb.InstallResponse_Validated:
+				fmt.Printf("OS installation successful. Version: %s\n", r.Validated.Version)
+				recvDone <- nil
+				return
+			case *pb.InstallResponse_TransferProgress:
+				fmt.Printf("Transfer Progress: %d bytes\n", r.TransferProgress.BytesReceived)
+			case *pb.InstallResponse_InstallError:
+				recvDone <- fmt.Errorf("InstallError: %v - %s", r.InstallError.Type, r.InstallError.Detail)
+				return
+			default:
+				fmt.Printf("Other InstallResponse: %T\n", r)
+			}
+		}
+	}()
+
+	// Open the input file and stream transfer_content chunks.
 	file, err := os.Open(*config.InputFile)
 	if err != nil {
 		logErrorAndExit("Failed to open OS image file %s: %v", *config.InputFile, err)
 	}
 	defer file.Close()
 
-	buffer := make([]byte, 4096)
+	var sendErr error
+	buffer := make([]byte, 1<<20) // 1 MiB chunks
 	for {
-		n, err := file.Read(buffer)
+		n, rerr := file.Read(buffer)
 		if n > 0 {
-			err = stream.Send(&pb.InstallRequest{
+			if serr := stream.Send(&pb.InstallRequest{
 				Request: &pb.InstallRequest_TransferContent{
 					TransferContent: buffer[:n],
 				},
-			})
-			if err != nil {
-				logErrorAndExit("Failed to send transfer_content: %v (n=%d)", err, n)
+			}); serr != nil {
+				// The target likely aborted the stream (e.g. InstallError).
+				// Stop sending and let the receiver goroutine report the real
+				// error instead of the generic send failure.
+				sendErr = serr
+				break
 			}
 		}
-		if err == io.EOF {
+		if rerr == io.EOF {
 			break
 		}
-		if err != nil {
-			logErrorAndExit("Failed to read OS file: %v", err)
+		if rerr != nil {
+			logErrorAndExit("Failed to read OS file: %v", rerr)
 		}
 	}
-	fmt.Println("Finished sending OS image.")
+	if sendErr == nil {
+		fmt.Println("Finished sending OS image.")
 
-	// Step 4: Send TransferEnd
-	if err := stream.Send(&pb.InstallRequest{
-		Request: &pb.InstallRequest_TransferEnd{
-			TransferEnd: &pb.TransferEnd{},
-		},
-	}); err != nil {
-		logErrorAndExit("Failed to send TransferEnd: %v", err)
+		// Step 4: Send TransferEnd, then half-close the send direction.
+		if err := stream.Send(&pb.InstallRequest{
+			Request: &pb.InstallRequest_TransferEnd{
+				TransferEnd: &pb.TransferEnd{},
+			},
+		}); err != nil {
+			sendErr = err
+		} else {
+			fmt.Println("Sent TransferEnd")
+		}
 	}
-	fmt.Println("Sent TransferEnd")
+	if err := stream.CloseSend(); err != nil {
+		fmt.Printf("Warning: CloseSend failed: %v\n", err)
+	}
 
-	// Step 5: Wait for final validation or error
-	for {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			logErrorAndExit("Error receiving final InstallResponse: %v", err)
-		}
-
-		switch r := resp.Response.(type) {
-		case *pb.InstallResponse_Validated:
-			fmt.Printf("OS installation successful. Version: %s\n", r.Validated.Version)
-			return
-		case *pb.InstallResponse_TransferProgress:
-			fmt.Printf("Transfer Progress: %d bytes\n", r.TransferProgress.BytesReceived)
-		case *pb.InstallResponse_InstallError:
-			logErrorAndExit("InstallError: %v - %s", r.InstallError.Type, r.InstallError.Detail)
-		default:
-			fmt.Printf("Other InstallResponse: %T\n", r)
-		}
+	// Step 5: Wait for the receiver goroutine to observe Validated / InstallError / EOF.
+	if rerr := <-recvDone; rerr != nil {
+		logErrorAndExit("%v", rerr)
 	}
 }

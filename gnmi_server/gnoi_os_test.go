@@ -67,14 +67,16 @@ type fakeInstallServer struct {
 	sendErr    error
 	sendFailAt int // fail on the Nth Send call (0 = always fail, -1 = never fail)
 	sendCount  int
+	sent       []*ospb.InstallResponse
 	recvQueue  []*ospb.InstallRequest
 	recvErrs   []error
 	recvIdx    int
 	ctx        context.Context
 }
 
-func (f *fakeInstallServer) Send(*ospb.InstallResponse) error {
+func (f *fakeInstallServer) Send(resp *ospb.InstallResponse) error {
 	f.sendCount++
+	f.sent = append(f.sent, resp)
 	if f.sendFailAt == 0 {
 		return f.sendErr
 	}
@@ -918,7 +920,7 @@ func TestProcessTransferContent_OpenFileError(t *testing.T) {
 	srv := newTestOSServer()
 
 	// Call the method under test
-	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
+	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img", 0)
 	t.Logf("processTransferContent response=%v", resp)
 
 	// Check if the response is not nil and has the expected error
@@ -968,7 +970,7 @@ func TestProcessTransferContent_WriteError(t *testing.T) {
 	srv := newTestOSServer()
 
 	// Call the method being tested
-	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
+	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img", 0)
 	t.Logf("processTransferContent response=%v", resp)
 
 	// Validate that the response contains the expected error
@@ -1010,7 +1012,7 @@ func TestProcessTransferContent_CloseError(t *testing.T) {
 
 	srv := newTestOSServer()
 
-	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img")
+	resp := srv.processTransferContent([]byte("test data"), "/tmp/test.img", 0)
 	t.Logf("processTransferContent response=%v", resp)
 
 	if resp == nil || resp.GetInstallError() == nil {
@@ -1277,6 +1279,61 @@ func TestInstall_RecvErrorOnTransferRequest(t *testing.T) {
 	}
 }
 
+// TestInstall_AlreadyInstalledVersion: when the backend answers the
+// TransferRequest with Validated, Install sends it and ends the RPC without
+// waiting for TransferContent.
+func TestInstall_AlreadyInstalledVersion(t *testing.T) {
+	ctx := context.Background()
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(authenticate, func(_ *Config, ctx context.Context, _ string, _ bool) (context.Context, error) {
+		return ctx, nil
+	})
+
+	backendCalls := 0
+	osSrv := &OSServer{
+		Server: &Server{config: &Config{ImgDir: "/tmp"}},
+		backend: &MockOSBackend{InstallOSFunc: func(req string) (string, error) {
+			backendCalls++
+			respStr, err := json.Marshal(&ospb.InstallResponse{
+				Response: &ospb.InstallResponse_Validated{
+					Validated: &ospb.Validated{Version: "SONiC-OS-installed"},
+				},
+			})
+			return string(respStr), err
+		}},
+		ImgDir: "/tmp",
+	}
+
+	fakeStream := &fakeInstallServer{
+		sendFailAt: -1,
+		recvQueue: []*ospb.InstallRequest{
+			{
+				Request: &ospb.InstallRequest_TransferRequest{
+					TransferRequest: &ospb.TransferRequest{
+						Version: "SONiC-OS-installed",
+					},
+				},
+			},
+		},
+		ctx: ctx,
+	}
+
+	err := osSrv.Install(fakeStream)
+	if err != nil {
+		t.Fatalf("Expected Install to succeed for an installed version, got: %v", err)
+	}
+	if fakeStream.sendCount != 1 {
+		t.Fatalf("Expected exactly one response (Validated), got %d", fakeStream.sendCount)
+	}
+	if fakeStream.recvIdx != 1 {
+		t.Fatalf("Expected Install to stop reading after the TransferRequest, read %d messages", fakeStream.recvIdx)
+	}
+	if backendCalls != 1 {
+		t.Fatalf("Expected one backend call, got %d", backendCalls)
+	}
+}
+
 // TestInstall_SendErrorOnTransferReady covers line 301: Send() fails when
 // sending the TransferReady response after processing the TransferRequest.
 func TestInstall_SendErrorOnTransferReady(t *testing.T) {
@@ -1468,4 +1525,149 @@ func TestInstall_SendErrorAfterTransferContent(t *testing.T) {
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.Aborted, st.Code())
 	assert.Contains(t, err.Error(), "send transfer progress failed")
+}
+
+func stubImgDirFreeSpace(t *testing.T, free uint64) {
+	orig := imgDirFreeSpace
+	imgDirFreeSpace = func(string) (uint64, error) { return free, nil }
+	t.Cleanup(func() { imgDirFreeSpace = orig })
+}
+
+func newSizeTestOSServer(t *testing.T) *OSServer {
+	imgDir := t.TempDir()
+	return &OSServer{
+		Server:  &Server{config: &Config{ImgDir: imgDir}},
+		backend: &MockOSBackend{InstallOSFunc: mockTransferReadySuccess},
+		ImgDir:  imgDir,
+	}
+}
+
+func transferRequest(version string, packageSize uint64) *ospb.InstallRequest {
+	return &ospb.InstallRequest{Request: &ospb.InstallRequest_TransferRequest{
+		TransferRequest: &ospb.TransferRequest{Version: version, PackageSize: packageSize},
+	}}
+}
+
+func transferContent(data string) *ospb.InstallRequest {
+	return &ospb.InstallRequest{Request: &ospb.InstallRequest_TransferContent{TransferContent: []byte(data)}}
+}
+
+func transferEnd() *ospb.InstallRequest {
+	return &ospb.InstallRequest{Request: &ospb.InstallRequest_TransferEnd{TransferEnd: &ospb.TransferEnd{}}}
+}
+
+func assertTooLarge(t *testing.T, resp *ospb.InstallResponse) {
+	t.Helper()
+	if resp.GetInstallError().GetType() != ospb.InstallError_TOO_LARGE {
+		t.Fatalf("Expected a TOO_LARGE InstallError, got %v", resp)
+	}
+}
+
+func TestInstall_PackageSize(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+	stubImgDirFreeSpace(t, 11<<30)
+
+	t.Run("larger than the free space is TOO_LARGE", func(t *testing.T) {
+		stream := &fakeInstallServer{sendFailAt: -1, recvQueue: []*ospb.InstallRequest{
+			transferRequest("SONiC-OS-BIG.0", 100<<30), transferContent("test data"),
+		}}
+		err := newSizeTestOSServer(t).Install(stream)
+		if status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted, got %v", err)
+		}
+		if len(stream.sent) != 1 {
+			t.Fatalf("Expected only the TransferRequest answer, got %v", stream.sent)
+		}
+		assertTooLarge(t, stream.sent[0])
+		if stream.recvIdx != 1 {
+			t.Fatalf("Expected no TransferContent to be read, read %d messages", stream.recvIdx)
+		}
+	})
+
+	t.Run("that would eat into the reserve is TOO_LARGE", func(t *testing.T) {
+		stream := &fakeInstallServer{sendFailAt: -1, recvQueue: []*ospb.InstallRequest{
+			transferRequest("SONiC-OS-BIG.0", 11<<30-imgDirReserve+1),
+		}}
+		if err := newSizeTestOSServer(t).Install(stream); status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted, got %v", err)
+		}
+		assertTooLarge(t, stream.sent[0])
+	})
+
+	t.Run("that fits is transferred", func(t *testing.T) {
+		stream := &fakeInstallServer{sendFailAt: -1, recvQueue: []*ospb.InstallRequest{
+			transferRequest("SONiC-OS-1.0", 9), transferContent("test data"), transferEnd(),
+		}}
+		if err := newSizeTestOSServer(t).Install(stream); err != nil {
+			t.Fatalf("Expected the transfer to succeed, got %v", err)
+		}
+		if stream.sent[0].GetTransferReady() == nil {
+			t.Fatalf("Expected TransferReady, got %v", stream.sent[0])
+		}
+		if got := stream.sent[1].GetTransferProgress().GetBytesReceived(); got != 9 {
+			t.Fatalf("Expected 9 bytes received, got %v", stream.sent[1])
+		}
+	})
+
+	t.Run("content beyond it is TOO_LARGE and the image is removed", func(t *testing.T) {
+		osSrv := newSizeTestOSServer(t)
+		stream := &fakeInstallServer{sendFailAt: -1, recvQueue: []*ospb.InstallRequest{
+			transferRequest("SONiC-OS-1.0", 8), transferContent("test "), transferContent("data"), transferEnd(),
+		}}
+		if err := osSrv.Install(stream); status.Code(err) != codes.Aborted {
+			t.Fatalf("Expected Aborted, got %v", err)
+		}
+		if len(stream.sent) != 3 {
+			t.Fatalf("Expected TransferReady, one TransferProgress and an InstallError, got %v", stream.sent)
+		}
+		assertTooLarge(t, stream.sent[2])
+		if _, err := os.Stat(osSrv.getVersionPath("SONiC-OS-1.0")); !os.IsNotExist(err) {
+			t.Fatalf("Expected the partial image to be removed, stat err=%v", err)
+		}
+	})
+}
+
+func TestProcessTransferContent_KeepsReserveFree(t *testing.T) {
+	srv := newSizeTestOSServer(t)
+	imgPath := srv.getVersionPath("SONiC-OS-1.0")
+
+	stubImgDirFreeSpace(t, imgDirReserve+8)
+	assertTooLarge(t, srv.processTransferContent([]byte("test data"), imgPath, 0))
+	if _, err := os.Stat(imgPath); !os.IsNotExist(err) {
+		t.Fatalf("Expected nothing to be written, stat err=%v", err)
+	}
+
+	stubImgDirFreeSpace(t, imgDirReserve+9)
+	resp := srv.processTransferContent([]byte("test data"), imgPath, 5)
+	if got := resp.GetTransferProgress().GetBytesReceived(); got != 14 {
+		t.Fatalf("Expected 14 bytes received, got %v", resp)
+	}
+}
+
+// A retried transfer of the same version counts its own bytes only.
+func TestInstall_RetryCountsFromZero(t *testing.T) {
+	patches := gomonkey.ApplyFuncReturn(authenticate, nil, nil)
+	defer patches.Reset()
+	stubImgDirFreeSpace(t, 11<<30)
+	osSrv := newSizeTestOSServer(t)
+
+	aborted := &fakeInstallServer{
+		sendFailAt: -1,
+		recvQueue:  []*ospb.InstallRequest{transferRequest("SONiC-OS-1.0", 0), transferContent("test data")},
+		recvErrs:   []error{nil, nil, errors.New("client went away")},
+	}
+	if err := osSrv.Install(aborted); status.Code(err) != codes.Aborted {
+		t.Fatalf("Expected the first transfer to abort, got %v", err)
+	}
+
+	retry := &fakeInstallServer{sendFailAt: -1, recvQueue: []*ospb.InstallRequest{
+		transferRequest("SONiC-OS-1.0", 0), transferContent("test data"), transferEnd(),
+	}}
+	if err := osSrv.Install(retry); err != nil {
+		t.Fatalf("Expected the retry to succeed, got %v", err)
+	}
+	if got := retry.sent[1].GetTransferProgress().GetBytesReceived(); got != 9 {
+		t.Fatalf("Expected 9 bytes received, got %v", retry.sent[1])
+	}
 }
