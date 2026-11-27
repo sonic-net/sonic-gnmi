@@ -62,9 +62,7 @@ stages:
     displayName: "Go static checks"
     timeoutInMinutes: 10
 
-    pool:
-      name: sonicso1ES-amd64
-      vmImage: ubuntu-22.04
+    pool: sonic-ubuntu-1c
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
@@ -151,9 +149,7 @@ stages:
     displayName: "Pure package tests"
     timeoutInMinutes: 15
 
-    pool:
-      name: sonicso1ES-amd64
-      vmImage: ubuntu-22.04
+    pool: sonic-ubuntu-1c
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
@@ -201,9 +197,7 @@ stages:
     displayName: "Memory-leak tests"
     timeoutInMinutes: 45
 
-    pool:
-      name: sonicso1ES-amd64
-      vmImage: ubuntu-22.04
+    pool: sonic-ubuntu-1c
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
@@ -235,9 +229,7 @@ stages:
     displayName: "Integration tests"
     timeoutInMinutes: 60
 
-    pool:
-      name: sonicso1ES-amd64
-      vmImage: ubuntu-22.04
+    pool: sonic-ubuntu-1c
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
@@ -325,9 +317,7 @@ stages:
     displayName: "amd64 deb build"
     timeoutInMinutes: 60
 
-    pool:
-      name: sonicso1ES-amd64
-      vmImage: ubuntu-22.04
+    pool: sonic-ubuntu-1c
 
     container:
       image: sonicdev-microsoft.azurecr.io:443/sonic-slave-trixie:$(BUILD_BRANCH)
