@@ -41,6 +41,16 @@ func TestCommandHelperProcess(t *testing.T) {
 	case "sleep":
 		time.Sleep(10 * time.Second)
 		os.Exit(0)
+	case "lines":
+		fmt.Fprintln(os.Stdout, "line one")
+		fmt.Fprintln(os.Stderr, "line two")
+		fmt.Fprintln(os.Stdout, "line three")
+		os.Exit(1)
+	case "endless":
+		for {
+			fmt.Fprintln(os.Stdout, "tick")
+			time.Sleep(10 * time.Millisecond)
+		}
 	default:
 		os.Exit(2)
 	}
@@ -155,6 +165,72 @@ func TestRunHostCommandTimeout(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed >= time.Second {
 		t.Errorf("RunHostCommand() elapsed = %v, want less than 1s", elapsed)
+	}
+}
+
+func TestRunHostCommandStream(t *testing.T) {
+	invocation := useCommandHelper(t, "lines")
+
+	var lines []string
+	exitCode, err := RunHostCommandStream(context.Background(), "ping", []string{"-c", "1", "10.0.0.1"}, nil, func(line string) error {
+		lines = append(lines, line)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunHostCommandStream() error = %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("RunHostCommandStream() exit code = %d, want 1", exitCode)
+	}
+	if want := []string{"line one", "line two", "line three"}; !reflect.DeepEqual(lines, want) {
+		t.Errorf("RunHostCommandStream() lines = %q, want %q", lines, want)
+	}
+	wantArgs := []string{
+		"--target", "1",
+		"--mount", "--uts", "--ipc", "--net",
+		"--",
+		"ping", "-c", "1", "10.0.0.1",
+	}
+	if !reflect.DeepEqual(invocation.args, wantArgs) {
+		t.Errorf("RunHostCommandStream() args = %q, want %q", invocation.args, wantArgs)
+	}
+}
+
+func TestRunHostCommandStreamLineError(t *testing.T) {
+	useCommandHelper(t, "endless")
+
+	stop := fmt.Errorf("client gone")
+	count := 0
+	start := time.Now()
+	_, err := RunHostCommandStream(context.Background(), "ping", nil, nil, func(string) error {
+		count++
+		if count == 3 {
+			return stop
+		}
+		return nil
+	})
+	if err != stop {
+		t.Fatalf("RunHostCommandStream() error = %v, want %v", err, stop)
+	}
+	if elapsed := time.Since(start); elapsed >= 5*time.Second {
+		t.Errorf("RunHostCommandStream() elapsed = %v, want the command killed", elapsed)
+	}
+}
+
+func TestRunHostCommandStreamCancel(t *testing.T) {
+	useCommandHelper(t, "endless")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := RunHostCommandStream(ctx, "ping", nil, nil, func(string) error { return nil })
+	if err != context.DeadlineExceeded {
+		t.Fatalf("RunHostCommandStream() error = %v, want %v", err, context.DeadlineExceeded)
+	}
+}
+
+func TestRunHostCommandStreamRejectsEmptyCommand(t *testing.T) {
+	if _, err := RunHostCommandStream(context.Background(), "", nil, nil, func(string) error { return nil }); err == nil {
+		t.Fatal("RunHostCommandStream() error = nil, want non-nil")
 	}
 }
 

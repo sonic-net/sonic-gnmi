@@ -298,7 +298,7 @@ func (srv *Server) CancelReboot(ctx context.Context, req *syspb.CancelRebootRequ
 	return resp.(*syspb.CancelRebootResponse), nil
 }
 
-// Ping is unimplemented.
+// Ping runs ping on the host and streams the replies and summary.
 func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) error {
 	ctx := stream.Context()
 	_, err := authenticate(srv.config, ctx, "gnoi", true)
@@ -306,7 +306,7 @@ func (srv *Server) Ping(req *syspb.PingRequest, stream syspb.System_PingServer) 
 		return err
 	}
 	log.V(1).Info("gNOI: Ping")
-	return status.Errorf(codes.Unimplemented, "Method system.Ping is unimplemented.")
+	return system.HandlePing(req, stream)
 }
 
 // Traceroute is unimplemented.

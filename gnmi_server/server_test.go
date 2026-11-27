@@ -7324,7 +7324,7 @@ func TestGnoiAuthorization(t *testing.T) {
 
 	err := s.Ping(new(gnoi_system_pb.PingRequest), new(MockPingServer))
 	if err == nil {
-		t.Errorf("Ping should failed, because not implement.")
+		t.Errorf("Ping should fail without a destination.")
 	}
 
 	s.Traceroute(new(gnoi_system_pb.TracerouteRequest), new(MockTracerouteServer))
