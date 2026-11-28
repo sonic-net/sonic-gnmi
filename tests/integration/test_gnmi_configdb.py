@@ -508,7 +508,7 @@ class TestGNMIConfigDb:
 
     def test_gnmi_stream_onchange_01(self):
         # Init bgp_asn
-        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn 65100'
         run_cmd(cmd)
 
         result_queue = queue.Queue()
@@ -525,11 +525,11 @@ class TestGNMIConfigDb:
 
         # Modify bgp_asn
         time.sleep(0.5)
-        cmd = r'redis-cli -n 4 hdel "DEVICE_METADATA|localhost" bgp_asn '
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hdel "DEVICE_METADATA|localhost" bgp_asn '
         run_cmd(cmd)
         for i in range(cnt):
             time.sleep(0.5)
-            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
             run_cmd(cmd)
 
         t.join()
@@ -539,7 +539,7 @@ class TestGNMIConfigDb:
 
     def test_gnmi_stream_onchange_02(self):
         # Init bgp_asn
-        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn 65100'
         run_cmd(cmd)
 
         result_queue = queue.Queue()
@@ -556,11 +556,11 @@ class TestGNMIConfigDb:
 
         # Modify bgp_asn
         time.sleep(0.5)
-        cmd = r'redis-cli -n 4 hdel "DEVICE_METADATA|localhost" bgp_asn '
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hdel "DEVICE_METADATA|localhost" bgp_asn '
         run_cmd(cmd)
         for i in range(cnt):
             time.sleep(0.5)
-            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
             run_cmd(cmd)
 
         t.join()
@@ -570,7 +570,7 @@ class TestGNMIConfigDb:
 
     def test_gnmi_stream_onchange_03(self):
         # Init bgp_asn
-        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn 65100'
         run_cmd(cmd)
 
         result_queue = queue.Queue()
@@ -588,7 +588,7 @@ class TestGNMIConfigDb:
         # Modify bgp_asn
         for i in range(cnt):
             time.sleep(0.5)
-            cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
+            cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn ' + str(i+1000)
             run_cmd(cmd)
 
         t.join()
@@ -653,7 +653,7 @@ class TestGNMISubscribeOnce:
         """Subscribe ONCE returns the current value after a SET."""
         # Set a known value
         update_path = '/sonic-db:CONFIG_DB/localhost/DEVICE_METADATA/localhost/bgp_asn'
-        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 99999'
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn 99999'
         run_cmd(cmd)
         time.sleep(0.5)
 
@@ -664,5 +664,5 @@ class TestGNMISubscribeOnce:
         assert "99999" in msg, 'Updated value not reflected in ONCE response: ' + msg
 
         # Restore
-        cmd = r'redis-cli -n 4 hset "DEVICE_METADATA|localhost" bgp_asn 65100'
+        cmd = r'sudo -n sonic-db-cli -s --authenticate CONFIG_DB hset "DEVICE_METADATA|localhost" bgp_asn 65100'
         run_cmd(cmd)

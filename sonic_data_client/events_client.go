@@ -1,12 +1,12 @@
 package client
 
 /*
-#cgo CFLAGS: -g -Wall -I../../sonic-swss-common/common -Wformat -Werror=format-security -fPIE
+#cgo CFLAGS: -g -Wall -Wformat -Werror=format-security -fPIE
 #cgo LDFLAGS: -L/usr/lib -lpthread -lboost_thread -lboost_system -lzmq -lboost_serialization -luuid -lswsscommon
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "events_wrap.h"
+#include <swss/events_wrap.h>
 */
 import "C"
 
