@@ -1,0 +1,90 @@
+name: gNMI benchmark gate (manual preview)
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'sonic-net/sonic-gnmi PR number to compare against its base'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One reserved environment at a time; never interrupt device restoration.
+concurrency:
+  group: gnmi-benchmark-gate
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'sonic-net/sonic-gnmi' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      base: ${{ steps.plan.outputs.base }}
+      head: ${{ steps.plan.outputs.head }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Require commissioned benchmark environment
+        env:
+          ENABLED: ${{ vars.GNMI_BENCHMARK_ENABLED }}
+        run: test "$ENABLED" = true
+      - name: Validate gate policy
+        run: python3 -m unittest discover -s tools/benchmark_gate -p 'test_*.py' -v
+      - name: Resolve immutable comparison plan
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+        run: python3 tools/benchmark_gate/gate.py plan --output plan.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: benchmark-plan
+          path: plan.json
+          if-no-files-found: error
+          retention-days: 7
+
+  compare:
+    needs: prepare
+    name: 'Compare ${{ needs.prepare.outputs.base }} / ${{ needs.prepare.outputs.head }}'
+    environment: gnmi-benchmark
+    runs-on:
+      group: gnmi-benchmark
+      labels: [self-hosted, linux, x64, gnmi-benchmark-ephemeral]
+    timeout-minutes: 180
+    steps:
+      # This is the trusted workflow revision, NEVER the candidate PR checkout.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: benchmark-plan
+          path: gate-input
+      - name: Run paired measurements and validate evidence
+        run: python3 tools/benchmark_gate/gate.py run --plan gate-input/plan.json --output gate-output
+      - name: Publish allowlisted summary
+        if: always()
+        run: |
+          if [ -f gate-output/summary.md ]; then
+            cat gate-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No completed benchmark evidence. Gate did not pass.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: benchmark-comparison
+          path: |
+            gate-output/summary.md
+            gate-output/comparison.json
+          if-no-files-found: error
+          retention-days: 7
