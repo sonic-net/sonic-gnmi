@@ -1,0 +1,6 @@
+# Keep the published binary label available after the upstream command move.
+alias(
+    name = "telemetry",
+    actual = "//cmd/telemetry",
+    visibility = ["//visibility:public"],
+)

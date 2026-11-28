@@ -44,3 +44,8 @@ test-results/
 __pycache__/
 *.pyc
 *.pyo
+
+# Bazel generated resolution and local build state
+/bazel-*
+/MODULE.bazel.lock
+/.bazelrc.user

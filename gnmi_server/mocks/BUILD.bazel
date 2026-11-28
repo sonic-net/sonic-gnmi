@@ -1,0 +1,19 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "mocks",
+    srcs = [
+        "mock_system_server.go",
+        "mock_system_setpackage_server.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnmi_server/mocks",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_golang_mock//gomock",
+        "@com_github_openconfig_gnoi//system",
+        "@org_golang_google_grpc//metadata",
+    ],
+)
+
+source_files()

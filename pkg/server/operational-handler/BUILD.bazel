@@ -1,0 +1,40 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "operational-handler",
+    srcs = [
+        "disk_space.go",
+        "doc.go",
+        "firmware_handler.go",
+        "operational_handler.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/server/operational-handler",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/diskspace",
+        "//internal/firmware",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_workiva_go_datastructures//queue",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "operational-handler_test",
+    srcs = [
+        "disk_space_test.go",
+        "firmware_handler_test.go",
+        "operational_handler_test.go",
+    ],
+    embed = [":operational-handler"],
+    deps = [
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_stretchr_testify//assert",
+        "@com_github_stretchr_testify//require",
+    ],
+)
+
+source_files()

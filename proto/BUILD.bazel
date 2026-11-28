@@ -1,0 +1,48 @@
+# gazelle:ignore
+load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//proto:def.bzl", "go_proto_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "proto",
+    srcs = [
+        "constants.go",
+        "dial_out.pb.go",
+        "sonic.pb.go",
+    ],
+    embed = [":sonic_internal_go_proto"],
+    importpath = "github.com/sonic-net/sonic-gnmi/proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@com_github_golang_protobuf//proto",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+        "@org_golang_google_protobuf//runtime/protoimpl",
+        "@org_golang_x_net//context",
+    ],
+)
+
+proto_library(
+    name = "sonic_internal_proto",
+    srcs = ["sonic_internal.proto"],
+    deps = ["@com_github_openconfig_gnmi//proto/gnmi:gnmi_proto"],
+)
+
+go_proto_library(
+    name = "sonic_internal_go_proto",
+    compilers = ["@io_bazel_rules_go//proto:go_grpc"],
+    importpath = "github.com/sonic-net/sonic-gnmi/proto",
+    proto = ":sonic_internal_proto",
+    deps = ["@com_github_openconfig_gnmi//proto/gnmi"],
+)
+
+source_files()
+
+filegroup(
+    name = "generated_proto_source",
+    srcs = [":sonic_internal_go_proto"],
+    output_group = "go_generated_srcs",
+    visibility = ["//visibility:public"],
+)

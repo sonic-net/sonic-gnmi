@@ -1,0 +1,13 @@
+diff --git a/BUILD.bazel b/BUILD.bazel
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -29,3 +29,9 @@
+     ],
+     embed = [":pam"],
+ )
++
++filegroup(
++    name = "cgo_sources",
++    srcs = ["callback.go", "transaction.go", "transaction.c"],
++    visibility = ["//visibility:public"],
++)

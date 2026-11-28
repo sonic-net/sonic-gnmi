@@ -10,15 +10,15 @@ import (
 func TestTranslatePathForContainer_MissingBranches(t *testing.T) {
 	// Test when /mnt/host exists - this should hit the missing branch
 	// Create a temporary /mnt/host directory to trigger the container logic
-	err := os.MkdirAll("/tmp/test_mnt/host", 0755)
+	root := t.TempDir()
+	err := os.MkdirAll(filepath.Join(root, "host"), 0755)
 	if err != nil {
 		t.Skip("Cannot create test directory")
 	}
-	defer os.RemoveAll("/tmp/test_mnt")
 
 	// Change to the test directory temporarily
 	originalDir, _ := os.Getwd()
-	os.Chdir("/tmp/test_mnt")
+	os.Chdir(root)
 	defer os.Chdir(originalDir)
 
 	// Now test translatePathForContainer - it should find /mnt/host and use it
@@ -92,7 +92,7 @@ func TestContainerLogic_BothBranches(t *testing.T) {
 	}
 
 	// Test os.Remove on non-existent file (to hit error paths in cleanup logic)
-	err = os.Remove("/tmp/definitely_does_not_exist_for_removal_test")
+	err = os.Remove(filepath.Join(t.TempDir(), "nonexistent"))
 	if err != nil {
 		t.Logf("Expected error removing non-existent file: %v", err)
 	}

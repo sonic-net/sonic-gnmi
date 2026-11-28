@@ -1,0 +1,38 @@
+load("//tools/bazel:source_files.bzl", "source_files")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+
+go_library(
+    name = "dbconfig",
+    srcs = [
+        "dbconfig.go",
+        "provider_swss.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/internal/adaptors/dbconfig",
+    visibility = ["//:__subpackages__"],
+    deps = ["@sonic_swss_common//goext:swsscommon"],
+)
+
+native_go_test(
+    name = "dbconfig_test",
+    srcs = ["dbconfig_test.go"],
+    data = glob(["testdata/**"]),
+    embed = [":dbconfig"],
+)
+
+go_test(
+    name = "dbconfig_pure_test",
+    srcs = [
+        "dbconfig.go",
+        "dbconfig_test.go",
+        "provider_pure.go",
+        "provider_pure_test.go",
+    ],
+    data = glob(["testdata/**"]),
+    # Match native Go's non-PIE race binary so the shadow-memory range is free.
+    gc_linkopts = ["-extldflags", "-no-pie"],
+    gotags = ["pure"],
+    race = "on",
+)
+
+source_files()

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -177,8 +178,9 @@ type OSBackend interface {
 // for forward compatibility
 type OSServer struct {
 	*Server
-	backend OSBackend // Dependency interface
-	ImgDir  string
+	backend   OSBackend // Dependency interface
+	openImage func(string) (io.WriteCloser, error)
+	ImgDir    string
 	gnoi_os_pb.UnimplementedOSServer
 }
 

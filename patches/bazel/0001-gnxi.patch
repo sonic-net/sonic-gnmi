@@ -1,0 +1,286 @@
+Update path.go to support origin field,
+use ":" in the first element to get origin field
+diff --git a/utils/xpath/path.go b/utils/xpath/path.go
+--- a/utils/xpath/path.go
++++ b/utils/xpath/path.go
+@@ -18,6 +18,7 @@ package xpath
+ 
+ import (
+ 	"fmt"
++	"strings"
+ 
+ 	pb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+@@ -45,9 +46,18 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
+ 		return nil, err
+ 	}
+ 	var pbPathElements []*pb.PathElem
+-	for _, elem := range xpathElements {
++	// Add support for path origin
++	origin := ""
++	for i, elem := range xpathElements {
+ 		switch v := elem.(type) {
+ 		case string:
++			if i == 0 {
++				firstElement := strings.SplitN(v, ":", 2)
++				if len(firstElement) == 2 {
++					origin = firstElement[0]
++					v = firstElement[1]
++				}
++			}
+ 			pbPathElements = append(pbPathElements, &pb.PathElem{Name: v})
+ 		case map[string]string:
+ 			n := len(pbPathElements)
+@@ -62,5 +71,5 @@ func ToGNMIPath(xpath string) (*pb.Path, error) {
+ 			return nil, fmt.Errorf("wrong data type: %T", v)
+ 		}
+ 	}
+-	return &pb.Path{Elem: pbPathElements}, nil
++	return &pb.Path{Origin: origin, Elem: pbPathElements}, nil
+ }
+
+Use escaped '/' to support ip prefix in path element
+diff --git a/utils/xpath/xpath.go b/utils/xpath/xpath.go
+--- a/utils/xpath/xpath.go
++++ b/utils/xpath/xpath.go
+@@ -88,11 +88,15 @@
+ 	for end < len(str) {
+ 		switch str[end] {
+ 		case '/':
+-			if !insideBrackets {
++			if end != 0 && str[end-1] == '\\' {
++				// Ignore escaped '/'
++				end++
++			} else if !insideBrackets {
+ 				// Current '/' is a valid path element
+ 				// separator.
+ 				if end > begin {
+-					path = append(path, str[begin:end])
++					val := strings.Replace(str[begin:end], `\/`, `/`, -1)
++					path = append(path, val)
+ 				}
+ 				end++
+ 				begin = end
+@@ -211,7 +215,7 @@
+ 	i := strings.Index(elem, "[")
+ 	if i < 0 {
+ 		if !idRe.MatchString(elem) {
+-			return nil, fmt.Errorf("invalid node name: %q", elem)
++			//return nil, fmt.Errorf("invalid node name: %q", elem)
+ 		}
+ 		return []interface{}{elem}, nil
+ 	}
+
+diff --git a/gnmi_set/gnmi_set.go b/gnmi_set/gnmi_set.go
+--- a/gnmi_set/gnmi_set.go
++++ b/gnmi_set/gnmi_set.go
+@@ -31,8 +31,9 @@
+ 
+ 	"github.com/google/gnxi/utils"
+ 	"github.com/google/gnxi/utils/credentials"
+-	"github.com/google/gnxi/utils/xpath"
+-
++	//"github.com/google/gnxi/utils/xpath"
++	"github.com/google/gnxi/utils/xpath"
++	"google.golang.org/grpc/metadata"
+ 	pb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+ 
+@@ -54,22 +55,45 @@
+ 	targetAddr = flag.String("target_addr", "localhost:10161", "The target address in the format of host:port")
+ 	targetName = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
+ 	timeOut    = flag.Duration("time_out", 10*time.Second, "Timeout for the Get request, 10 seconds by default")
++	pathTarget = flag.String("xpath_target", "", "name of the target for which the path is a member")
++	jwtToken   = flag.String("jwt_token", "", "JWT Token if required")
+ )
+ 
+ func buildPbUpdateList(pathValuePairs []string) []*pb.Update {
+ 	var pbUpdateList []*pb.Update
+ 	for _, item := range pathValuePairs {
+-		pathValuePair := strings.SplitN(item, ":", 2)
+-		// TODO (leguo): check if any path attribute contains ':'
++		modName := strings.SplitN(item, "/", 3)
++		
++		pathValuePair := make([]string, 2)
++		lc := strings.LastIndex(modName[2],":")
++		
++		if lc == -1 {
++			log.Exitf("invalid path-value pair: %v", item)
++		}
++		// pathValuePair_r := strings.SplitN(modName[2], ":", 2)
++		// pathValuePair[0] = modName[2][0:lc]
++
++		pathValuePair[0] = "/" + modName[1] + "/" + modName[2][0:lc]
++
++		pathValuePair[1] = modName[2][lc+1:]
++		fmt.Println(pathValuePair[0])
++		fmt.Println(pathValuePair[1])
++
++
+ 		if len(pathValuePair) != 2 || len(pathValuePair[1]) == 0 {
+ 			log.Exitf("invalid path-value pair: %v", item)
++			log.Exitf("invalid path-value pair: %v", modName)
+ 		}
++
++
+ 		pbPath, err := xpath.ToGNMIPath(pathValuePair[0])
+ 		if err != nil {
+ 			log.Exitf("error in parsing xpath %q to gnmi path", pathValuePair[0])
+ 		}
+ 		var pbVal *pb.TypedValue
+-		if pathValuePair[1][0] == '@' {
++		if pathValuePair[1][0] == '#' {
++			pbVal = nil
++		} else if pathValuePair[1][0] == '@' {
+ 			jsonFile := pathValuePair[1][1:]
+ 			jsonConfig, err := ioutil.ReadFile(jsonFile)
+ 			if err != nil {
+@@ -81,6 +105,17 @@
+ 					JsonIetfVal: jsonConfig,
+ 				},
+ 			}
++		} else if pathValuePair[1][0] == '$' {
++			protoFile := pathValuePair[1][1:]
++			protoConfig, err := ioutil.ReadFile(protoFile)
++			if err != nil {
++				log.Exitf("cannot read data from file %v", protoFile)
++			}
++			pbVal = &pb.TypedValue{
++				Value: &pb.TypedValue_ProtoBytes{
++					ProtoBytes: protoConfig,
++				},
++			}
+ 		} else {
+ 			if strVal, err := strconv.Unquote(pathValuePair[1]); err == nil {
+ 				pbVal = &pb.TypedValue{
+@@ -144,8 +179,10 @@
+ 	}
+ 	replaceList := buildPbUpdateList(replaceOpt)
+ 	updateList := buildPbUpdateList(updateOpt)
+-
++	var prefix pb.Path
++	prefix.Target = *pathTarget
+ 	setRequest := &pb.SetRequest{
++		Prefix:    &prefix,
+ 		Delete:  deleteList,
+ 		Replace: replaceList,
+ 		Update:  updateList,
+@@ -155,11 +192,17 @@
+ 	utils.PrintProto(setRequest)
+ 
+ 	cli := pb.NewGNMIClient(conn)
+-	setResponse, err := cli.Set(context.Background(), setRequest)
++	ctx, cancel := context.WithTimeout(context.Background(), *timeOut)
++	defer cancel()
++
++	if len(*jwtToken) > 0 {
++		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
++	}
++	setResponse, err := cli.Set(ctx, setRequest)
+ 	if err != nil {
+ 		log.Exitf("Set failed: %v", err)
+ 	}
+ 
+-	fmt.Println("== getResponse:")
++	fmt.Println("== setResponse:")
+ 	utils.PrintProto(setResponse)
+ }
+
+diff --git a/gnmi_get/gnmi_get.go b/gnmi_get/gnmi_get.go
+--- a/gnmi_get/gnmi_get.go
++++ b/gnmi_get/gnmi_get.go
+@@ -21,6 +21,7 @@
+ 	"fmt"
+ 	"strings"
+ 	"time"
++	"io/ioutil"
+ 
+ 	log "github.com/golang/glog"
+ 	"github.com/golang/protobuf/proto"
+@@ -30,7 +31,7 @@
+ 	"github.com/google/gnxi/utils"
+ 	"github.com/google/gnxi/utils/credentials"
+ 	"github.com/google/gnxi/utils/xpath"
+-
++	"google.golang.org/grpc/metadata"
+ 	pb "github.com/openconfig/gnmi/proto/gnmi"
+ )
+ 
+@@ -63,16 +64,20 @@
+ 	xPathFlags       arrayFlags
+ 	pbPathFlags      arrayFlags
+ 	pbModelDataFlags arrayFlags
++	protoFileFlags   arrayFlags
++	pathTarget       = flag.String("xpath_target", "", "name of the target for which the path is a member")
+ 	targetAddr       = flag.String("target_addr", "localhost:10161", "The target address in the format of host:port")
+ 	targetName       = flag.String("target_name", "hostname.com", "The target name use to verify the hostname returned by TLS handshake")
+ 	timeOut          = flag.Duration("time_out", 10*time.Second, "Timeout for the Get request, 10 seconds by default")
+ 	encodingName     = flag.String("encoding", "JSON_IETF", "value encoding format to be used")
++	jwtToken         = flag.String("jwt_token", "", "JWT Token if required")
+ )
+ 
+ func main() {
+ 	flag.Var(&xPathFlags, "xpath", "xpath of the config node to be fetched")
+ 	flag.Var(&pbPathFlags, "pbpath", "protobuf format path of the config node to be fetched")
+ 	flag.Var(&pbModelDataFlags, "model_data", "Data models to be used by the target in the format of 'name,organization,version'")
++	flag.Var(&protoFileFlags, "proto_file", "Files for proto bytes in get response")
+ 	flag.Parse()
+ 
+ 	opts := credentials.ClientCredentials(*targetName)
+@@ -87,6 +92,10 @@
+ 	ctx, cancel := context.WithTimeout(context.Background(), *timeOut)
+ 	defer cancel()
+ 
++	if len(*jwtToken) > 0 {
++		ctx = metadata.AppendToOutgoingContext(ctx, "access_token", *jwtToken)
++	}
++
+ 	encoding, ok := pb.Encoding_value[*encodingName]
+ 	if !ok {
+ 		var gnmiEncodingList []string
+@@ -96,12 +105,14 @@
+ 		log.Exitf("Supported encodings: %s", strings.Join(gnmiEncodingList, ", "))
+ 	}
+ 
++	var prefix pb.Path
++	prefix.Target = *pathTarget
+ 	var pbPathList []*pb.Path
+ 	var pbModelDataList []*pb.ModelData
+ 	for _, xPath := range xPathFlags {
+ 		pbPath, err := xpath.ToGNMIPath(xPath)
+ 		if err != nil {
+-			log.Exitf("error in parsing xpath %q to gnmi path", xPath)
++			log.Exitf("error in parsing xpath %q to gnmi path, %v", xPath, err)
+ 		}
+ 		pbPathList = append(pbPathList, pbPath)
+ 	}
+@@ -120,6 +131,7 @@
+ 	}
+ 
+ 	getRequest := &pb.GetRequest{
++		Prefix:    &prefix,
+ 		Encoding:  pb.Encoding(encoding),
+ 		Path:      pbPathList,
+ 		UseModels: pbModelDataList,
+@@ -135,4 +147,20 @@
+ 
+ 	fmt.Println("== getResponse:")
+ 	utils.PrintProto(getResponse)
++
++	if *encodingName == "PROTO" {
++		cnt := 0
++		for _, notification := range getResponse.GetNotification() {
++			for _, update := range notification.GetUpdate() {
++				val := update.GetVal()
++				protoBytes := val.GetProtoBytes()
++				fileName := protoFileFlags[cnt]
++				err := ioutil.WriteFile(fileName, protoBytes, 0666)
++				if err != nil {
++					log.Exitf("Write %v failed", "PROTO" + string(cnt))
++				}
++				cnt = cnt + 1
++			}
++		}
++	}
+ }
+

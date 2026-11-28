@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "gnoi_client_lib",
+    srcs = ["gnoi_client.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnoi_client",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//gnoi_client/config",
+        "//gnoi_client/containerz",
+        "//gnoi_client/factory_reset",
+        "//gnoi_client/file",
+        "//gnoi_client/healthz",
+        "//gnoi_client/os",
+        "//gnoi_client/sonic",
+        "//gnoi_client/system",
+        "@com_github_google_gnxi//utils/credentials",
+        "@com_github_openconfig_gnoi//factory_reset",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_binary(
+    name = "gnoi_client",
+    embed = [":gnoi_client_lib"],
+    visibility = ["//visibility:public"],
+)
+
+source_files()

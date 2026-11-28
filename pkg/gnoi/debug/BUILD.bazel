@@ -1,0 +1,40 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "debug",
+    srcs = [
+        "debug.go",
+        "policy.go",
+    ],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/gnoi/debug",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/exec",
+        "@com_github_google_shlex//:shlex",
+        "@com_github_openconfig_gnoi//debug",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+    ],
+)
+
+native_go_test(
+    name = "debug_test",
+    srcs = [
+        "debug_test.go",
+        "policy_test.go",
+    ],
+    embed = [":debug"],
+    deps = [
+        "//internal/exec",
+        "@com_github_openconfig_gnoi//debug",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+source_files()

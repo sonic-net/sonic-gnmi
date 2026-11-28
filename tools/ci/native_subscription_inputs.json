@@ -1,0 +1,12 @@
+{
+  "owners": {
+    "sonic-swss-common": {
+      "revision": "d8d59ad0ccf9e802ec574354e73315877d29dcc2",
+      "sha256": "45c04712ef66003cf01387df8c6af8bbd7e862ac310598d223b2c15aff66e02f"
+    },
+    "sonic-mgmt-common": {
+      "revision": "7259c3a10acc7c207fff95b0641d3b7acb3011a4",
+      "sha256": "d7764c4143d8e237e28c8a6db2a985fddc8e83d6e374ee5ccb97477ddd8aade4"
+    }
+  }
+}

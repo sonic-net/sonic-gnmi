@@ -8,8 +8,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io/ioutil"
-	"os"
-	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -113,17 +111,20 @@ func getRedisClient(t *testing.T) *redis.Client {
 }
 
 func exe_cmd(t *testing.T, cmd string) {
-	//fmt.Println("command is ", cmd)
+	t.Helper()
 	parts := strings.Fields(cmd)
-	head := parts[0]
-	parts = parts[1:len(parts)]
-
-	_, err := exec.Command(head, parts...).Output()
-	if err != nil {
-		t.Fatalf("%s %s", cmd, err)
+	if len(parts) < 4 || parts[0] != "redis-cli" || parts[1] != "-n" || parts[2] != "4" {
+		t.Fatalf("unexpected fixture command %q", cmd)
 	}
-	// fmt.Printf("%s", out)
-	// wg.Done() // Need to signal to waitgroup that this goroutine is done
+	client := getConfigDbClient(t)
+	defer client.Close()
+	args := make([]interface{}, len(parts)-3)
+	for i, value := range parts[3:] {
+		args[i] = value
+	}
+	if err := client.Do(context.Background(), args...).Err(); err != nil {
+		t.Fatalf("%s: %v", cmd, err)
+	}
 }
 
 func getConfigDbClient(t *testing.T) *redis.Client {
@@ -190,10 +191,8 @@ func prepareDb(t *testing.T) {
 	rclient := getRedisClient(t)
 	defer rclient.Close()
 	rclient.FlushDB(context.Background())
-	//Enable keysapce notification
-	os.Setenv("PATH", "$PATH:/usr/bin:/sbin:/bin:/usr/local/bin:/usr/local/Cellar/redis/4.0.8/bin")
-	cmd := exec.Command("redis-cli", "config", "set", "notify-keyspace-events", "KEA")
-	_, err := cmd.Output()
+	// Enable notifications on this suite's configured Redis instance.
+	err := rclient.ConfigSet(context.Background(), "notify-keyspace-events", "KEA").Err()
 	if err != nil {
 		t.Fatal("failed to enable redis keyspace notification ", err)
 	}
@@ -206,7 +205,7 @@ func prepareDb(t *testing.T) {
 	mpi_name_map := loadConfig(t, "COUNTERS_PORT_NAME_MAP", countersPortNameMapByte)
 	loadDB(t, rclient, mpi_name_map)
 
-	fileName = "../../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -215,7 +214,7 @@ func prepareDb(t *testing.T) {
 	mpi_counter := loadConfig(t, "COUNTERS:oid:0x1000000000039", countersEthernet68Byte)
 	loadDB(t, rclient, mpi_counter)
 
-	fileName = "../../testdata/COUNTERS:Ethernet1.txt"
+	fileName = "../../testdata/COUNTERS_Ethernet1.txt"
 	countersEthernet1Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -225,7 +224,7 @@ func prepareDb(t *testing.T) {
 	loadDB(t, rclient, mpi_counter)
 
 	// "Ethernet64:0": "oid:0x1500000000092a"  : queue counter, to work as data noise
-	fileName = "../../testdata/COUNTERS:oid:0x1500000000092a.txt"
+	fileName = "../../testdata/COUNTERS_oid_0x1500000000092a.txt"
 	counters92aByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -329,14 +328,14 @@ func TestGNMIDialOutPublish(t *testing.T) {
 	}
 	_ = countersPortNameMapByte
 
-	fileName = "../../testdata/COUNTERS:Ethernet68.txt"
+	fileName = "../../testdata/COUNTERS_Ethernet68.txt"
 	countersEthernet68Byte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
 	}
 	_ = countersEthernet68Byte
 
-	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_alias_expected.txt"
+	fileName = "../../testdata/COUNTERS_Ethernet_wildcard_alias_expected.txt"
 	countersEthernetWildcardByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)
@@ -344,7 +343,7 @@ func TestGNMIDialOutPublish(t *testing.T) {
 
 	_ = countersEthernetWildcardByte
 
-	fileName = "../../testdata/COUNTERS:Ethernet_wildcard_PFC_7_RX_alias.txt"
+	fileName = "../../testdata/COUNTERS_Ethernet_wildcard_PFC_7_RX_alias.txt"
 	countersEthernetWildcardPfcByte, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		t.Fatalf("read file %v err: %v", fileName, err)

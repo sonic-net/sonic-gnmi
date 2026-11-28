@@ -1,0 +1,31 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:native_test.bzl", "native_go_test")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "bypass",
+    srcs = ["bypass.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/pkg/bypass",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//internal/redisopts",
+        "@com_github_golang_glog//:glog",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@org_golang_google_grpc//metadata",
+    ],
+)
+
+native_go_test(
+    name = "bypass_test",
+    srcs = ["bypass_test.go"],
+    embed = [":bypass"],
+    deps = [
+        "@com_github_alicebob_miniredis_v2//:miniredis",
+        "@com_github_openconfig_gnmi//proto/gnmi",
+        "@com_github_redis_go_redis_v9//:go-redis",
+        "@org_golang_google_grpc//metadata",
+    ],
+)
+
+source_files()

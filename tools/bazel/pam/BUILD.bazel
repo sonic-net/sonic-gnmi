@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+# Same pinned upstream Go/C sources, with declared target PAM headers/libraries.
+go_library(
+    name = "pam",
+    srcs = ["@com_github_msteinert_pam//:cgo_sources"],
+    cdeps = ["@trixie//libpam0g-dev:libpam0g"],
+    cgo = True,
+    copts = [
+        "-Wall",
+        "-std=c99",
+    ],
+    importpath = "github.com/msteinert/pam",
+    visibility = ["//visibility:public"],
+)
+
+source_files()

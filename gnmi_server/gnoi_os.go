@@ -171,7 +171,13 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 	}
 
 	// Open the file for writing (create or append)
-	f, err := os.OpenFile(safePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	openImage := srv.openImage
+	if openImage == nil {
+		openImage = func(path string) (io.WriteCloser, error) {
+			return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		}
+	}
+	f, err := openImage(safePath)
 	if err != nil {
 		log.Errorf("processTransferContent: Failed to open or create file for writing: %s, error: %v", safePath, err)
 		return &ospb.InstallResponse{
@@ -184,7 +190,9 @@ func (srv *OSServer) processTransferContent(transferContent []byte, imgPath stri
 	}
 
 	if _, err := f.Write(transferContent); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			log.Errorf("processTransferContent: Failed to close %s after write error: %v", safePath, closeErr)
+		}
 		log.Errorf("processTransferContent: Failed to write to file: %s, error: %v", safePath, err)
 		return &ospb.InstallResponse{
 			Response: &ospb.InstallResponse_InstallError{

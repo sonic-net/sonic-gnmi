@@ -8,7 +8,6 @@ import (
 	"net"     // Added for net.TCPAddr and net.ParseIP
 	"net/url" // Added for url.Parse
 	"os"
-	"sync"
 	"testing"
 	"time"
 
@@ -723,11 +722,7 @@ func TestGnsiPathzRotation(t *testing.T) {
 	TestPathzMetaFile = pathzTestMetaFile
 
 	const testPort = 8081
-	s := createPathzServer(t, testPort)
-
 	defer os.Remove(pathzTestPolicyFile)
-	go runServer(t, s)
-	defer s.Stop()
 
 	// Create a gNSI.pathz client and connect it to the gNSI.pathz server.
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
@@ -747,30 +742,48 @@ func TestGnsiPathzRotation(t *testing.T) {
 	authenticateFunc = func(config *Config, ctx context.Context, target string, writeAccess bool) (context.Context, error) {
 		return ctx, nil
 	}
-	var mu sync.Mutex
+	var lastServer *Server
 	for _, tc := range pathzRotationTestCases {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		t.Run(tc.desc, func(t *testing.T) {
-			mu.Lock()
-			defer mu.Unlock()
-			conn, err := grpc.Dial(targetAddr, opts...)
-			if err != nil {
+			s := createPathzServer(t, testPort)
+			lastServer = s
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			var conn *grpc.ClientConn
+			serveDone := make(chan error, 1)
+			t.Cleanup(func() {
 				cancel()
+				if conn != nil {
+					conn.Close()
+				}
+				// A client-side stream error can precede the server's policy
+				// rollback. Drain this case's handlers before resetting the file.
+				s.Stop()
+				if err := <-serveDone; err != nil && err != grpc.ErrServerStopped {
+					t.Errorf("Pathz server failed: %v", err)
+				}
+				s.gnsiCredentialz.Close()
+				if err := resetPathzPolicyFile(s.config.PathzPolicyFile); err != nil {
+					t.Errorf("Error when reverting to V1: %v", err)
+				}
+				expectPolicyMatch(t, pathzTestPolicyFile, pathzTestPolicyPermit)
+			})
+			// This fixture has only a TCP listener. Join Serve during cleanup,
+			// including cases that skip before the serving goroutine starts.
+			go func() {
+				serveDone <- s.s.Serve(s.lis)
+			}()
+			var err error
+			conn, err = grpc.Dial(targetAddr, opts...)
+			if err != nil {
 				t.Fatalf("Dialing to %s failed: %v", targetAddr, err)
 			}
-			defer conn.Close()
 			sc := pathz.NewPathzClient(conn)
 			tc.f(ctx, t, sc, s)
-			if err := resetPathzPolicyFile(s.config.PathzPolicyFile); err != nil {
-				t.Errorf("Error when reverting to V1: %v", err)
-			}
-			// And sanity check
-			expectPolicyMatch(t, pathzTestPolicyFile, pathzTestPolicyPermit)
-
 		})
-		cancel()
 	}
-	s.gnsiPathz.savePathzFileFreshess(s.config.PathzMetaFile)
+	if lastServer != nil {
+		lastServer.gnsiPathz.savePathzFileFreshess(lastServer.config.PathzMetaFile)
+	}
 }
 
 // TestGnsiPathzRotateUnauthenticated tests implementation of gnsi.pathz Rotate Unsuthenticated error.

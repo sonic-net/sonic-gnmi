@@ -1,0 +1,17 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//tools/bazel:source_files.bzl", "source_files")
+
+go_library(
+    name = "os",
+    srcs = ["os.go"],
+    importpath = "github.com/sonic-net/sonic-gnmi/gnoi_client/os",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//gnoi_client/config",
+        "//gnoi_client/utils",
+        "@com_github_openconfig_gnoi//os",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+source_files()
