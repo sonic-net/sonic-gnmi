@@ -73,12 +73,10 @@ named `telemetry`. Build it in the SONiC build environment with `make all`.
 Its native tests remain part of `make test-integration`, not the pure-package
 suite. Existing binary paths, command-line flags and Debian packaging are unchanged.
 
-An independent E2E test repository should exercise the built binary through its
-TLS/gRPC endpoint and public configuration, rather than importing server internals.
-Pin both the tested build revision and test revision. Test-generated certificates,
-private Redis/configuration and a local CRL endpoint can supply real auth inputs;
-the production authentication and authorization implementations should still run.
-This layout change does not add that E2E suite or a cross-repository CI trigger.
+[RPC integration tests](tests/rpc/README.md) compose a selected production service
+with real TLS/gRPC and private Redis for role mappings and normal Get data reads.
+The amd64 package job runs one Go readonly Get example and publishes JUnit,
+raw Go results, source hashes and cleanup logs. This is not package/startup E2E.
 
 The request-local authentication fallback and role checks can be tested without
 Redis, SWSS, or a running gNMI server:
